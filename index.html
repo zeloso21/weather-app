@@ -22,17 +22,33 @@
     overflow-x: hidden;
   }
   body {
+    background-attachment: fixed;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    transition: background 1.2s ease;
+  }
+  body.night {
     background:
       radial-gradient(ellipse at top, #2d1b5a 0%, transparent 60%),
       radial-gradient(ellipse at bottom, #1a1040 0%, transparent 70%),
       linear-gradient(180deg, #0d0d3e 0%, #1a0d3e 50%, #050518 100%);
-    background-attachment: fixed;
-    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   }
+  body.day {
+    background:
+      radial-gradient(circle at 78% 14%, rgba(255,240,140,0.85) 0%, rgba(255,210,110,0.5) 8%, rgba(255,200,100,0.15) 20%, transparent 38%),
+      linear-gradient(180deg, #2b7fc4 0%, #4ea3dc 35%, #84c5ee 70%, #b8def5 100%);
+  }
+  body.day .card {
+    background: rgba(20, 50, 90, 0.28);
+    border: 1px solid rgba(255,255,255,0.18);
+  }
+  body.day .tabbar { background: rgba(20, 60, 110, 0.7); }
   #stars {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     pointer-events: none; z-index: 0;
+    transition: opacity 1.2s ease;
   }
+  body.day #stars { opacity: 0; }
+  body.night #stars { opacity: 1; }
   .star {
     position: absolute; background: #fff; border-radius: 50%;
     animation: twinkle 3s infinite ease-in-out;
@@ -228,6 +244,18 @@ const WMO = {
   95:['⛈️','뇌우','뇌우 가능성'], 96:['⛈️','뇌우+우박','우박 동반 뇌우'], 99:['⛈️','강한 뇌우','강한 우박 뇌우']
 };
 const wmo = c => WMO[c] || ['❓','알 수 없음','알 수 없음'];
+
+// 시간대별 테마 (0~9시: 밤, 그 외: 낮)
+function updateTheme() {
+  const h = new Date().getHours();
+  const isNight = h >= 0 && h < 9;
+  document.body.classList.toggle('night', isNight);
+  document.body.classList.toggle('day', !isNight);
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', isNight ? '#0d0d2e' : '#4ea3dc');
+}
+updateTheme();
+setInterval(updateTheme, 60000);
 
 // 별 생성
 function makeStars() {
