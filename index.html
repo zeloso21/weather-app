@@ -295,6 +295,27 @@ async function load(city) {
   }
 }
 
+async function reverseGeocode(lat, lon) {
+  // OpenStreetMap Nominatim - 한국 동/구 단위까지 상세 (무료, 키 X)
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&zoom=14&accept-language=ko`;
+    const data = await fetch(url).then(x => x.json());
+    if (data && data.address) {
+      const a = data.address;
+      const detail = a.neighbourhood || a.suburb || a.quarter || a.hamlet || a.village || a.town || a.city_district;
+      const city = a.city || a.county || a.borough || a.state;
+      if (detail && city && detail !== city) return `${detail} ${city}`;
+      return detail || city || a.state || (data.display_name || '').split(',')[0].trim();
+    }
+  } catch (e) {}
+  // 폴백: Open-Meteo
+  try {
+    const rev = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=ko`).then(x => x.json());
+    if (rev.results && rev.results[0]) return rev.results[0].name;
+  } catch (e) {}
+  return null;
+}
+
 async function loadByCoords(lat, lon, placeName) {
   document.getElementById('content').innerHTML = '<div class="loading">불러오는 중...</div>';
   try {
@@ -302,10 +323,7 @@ async function loadByCoords(lat, lon, placeName) {
 
     let name = placeName;
     if (!name) {
-      try {
-        const rev = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=ko`).then(x => x.json());
-        name = rev.results && rev.results[0] ? rev.results[0].name : '현재 위치';
-      } catch { name = '현재 위치'; }
+      name = await reverseGeocode(lat, lon) || '현재 위치';
     }
     render(name, w);
   } catch {
