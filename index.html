@@ -118,6 +118,30 @@
   }
   .speak-btn:hover, .speak-btn:active { background: rgba(255,255,255,0.3); }
   .speak-btn.playing { background: rgba(100,200,255,0.4); }
+  .voice-bar {
+    display: flex; gap: 6px; align-items: center;
+    margin-top: 10px; padding-top: 10px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    font-size: 12px;
+  }
+  .voice-bar label { opacity: 0.7; white-space: nowrap; }
+  .voice-bar select {
+    flex: 1; padding: 6px 8px; border-radius: 8px;
+    background: rgba(255,255,255,0.15); color: #fff;
+    border: 1px solid rgba(255,255,255,0.15); font-size: 12px; outline: none;
+  }
+  .voice-bar select option { background: #1a1a3e; color: #fff; }
+  .voice-bar button {
+    background: rgba(255,255,255,0.15); border: none; color: #fff;
+    padding: 6px 10px; border-radius: 8px; cursor: pointer; font-size: 12px;
+  }
+  .speed-bar {
+    display: flex; gap: 8px; align-items: center;
+    margin-top: 6px; font-size: 12px;
+  }
+  .speed-bar label { opacity: 0.7; white-space: nowrap; }
+  .speed-bar input { flex: 1; accent-color: #6db3ff; }
+  .speed-bar .val { min-width: 32px; text-align: right; opacity: 0.8; }
 
   .hourly { display: flex; gap: 4px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
   .hourly::-webkit-scrollbar { display: none; }
@@ -325,6 +349,11 @@ function render(place, w) {
   summaryContext = { todayLo, todayHi, rainProb };
   const { display: summary, speech: summarySpeech } = buildSummary(todayLo, todayHi, rainProb, todayEventsCache);
   currentSummary = summarySpeech;
+  setTimeout(() => {
+    const s = document.getElementById('rate-slider');
+    if (s) { s.value = speechRate; document.getElementById('rate-val').textContent = speechRate.toFixed(2) + '×'; }
+    populateVoiceList();
+  }, 0);
 
   // 시간별 예보 (현재부터 24시간)
   const nowIdx = h.time.findIndex(t => new Date(t) > new Date()) - 1;
@@ -404,6 +433,16 @@ function render(place, w) {
       <div class="summary-row">
         <div class="summary" id="summary-text">${summary}</div>
         <button class="speak-btn" id="speak-btn" onclick="speakSummary()" title="음성으로 듣기">🔊</button>
+      </div>
+      <div class="voice-bar">
+        <label>🎙️ 목소리:</label>
+        <select id="voice-select"></select>
+        <button onclick="previewVoice()">미리듣기</button>
+      </div>
+      <div class="speed-bar">
+        <label>속도:</label>
+        <input id="rate-slider" type="range" min="0.7" max="1.3" step="0.05" value="0.95" />
+        <span class="val" id="rate-val">0.95×</span>
       </div>
     </div>
 
@@ -515,11 +554,57 @@ function rebuildSummary() {
 // ===== 음성 재생 (TTS) =====
 let currentSummary = '';
 let koreanVoice = null;
+let speechRate = parseFloat(localStorage.getItem('speechRate') || '0.95');
 
 function pickKoreanVoice() {
   const voices = speechSynthesis.getVoices();
-  koreanVoice = voices.find(v => v.lang === 'ko-KR') || voices.find(v => v.lang.startsWith('ko')) || null;
+  if (!voices.length) return;
+  const koVoices = voices.filter(v => v.lang.startsWith('ko'));
+  if (!koVoices.length) { populateVoiceList(); return; }
+
+  // 저장된 선호 보이스 복원
+  const saved = localStorage.getItem('preferredVoice');
+  if (saved) {
+    const v = koVoices.find(v => v.name === saved);
+    if (v) { koreanVoice = v; populateVoiceList(); return; }
+  }
+
+  // 자연스러운 보이스 우선순위 (아나운서스러운 것)
+  const priority = [
+    /google.*한국|google.*korea|google.*ko-?kr/i, // Android Chrome - 가장 자연스러움
+    /yuna/i,                                       // iOS/macOS Apple Premium
+    /neural|natural|wavenet|premium|enhanced/i,    // 신경망 기반
+    /sunhi|heami|injoon|gook/i,                    // Windows Microsoft
+    /female|여성/i                                  // 여성 보이스 (아나운서 느낌)
+  ];
+  for (const re of priority) {
+    const v = koVoices.find(v => re.test(v.name));
+    if (v) { koreanVoice = v; populateVoiceList(); return; }
+  }
+  koreanVoice = koVoices[0];
+  populateVoiceList();
 }
+
+function populateVoiceList() {
+  const select = document.getElementById('voice-select');
+  if (!select) return;
+  const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko'));
+  if (!voices.length) {
+    select.innerHTML = '<option>한국어 음성 없음 (브라우저/OS에서 추가 필요)</option>';
+    select.disabled = true;
+    return;
+  }
+  select.disabled = false;
+  select.innerHTML = voices.map(v =>
+    `<option value="${v.name}" ${koreanVoice && v.name === koreanVoice.name ? 'selected' : ''}>${v.name}</option>`
+  ).join('');
+  select.onchange = () => {
+    koreanVoice = voices.find(v => v.name === select.value);
+    localStorage.setItem('preferredVoice', select.value);
+    previewVoice();
+  };
+}
+
 if ('speechSynthesis' in window) {
   pickKoreanVoice();
   speechSynthesis.onvoiceschanged = pickKoreanVoice;
@@ -531,7 +616,7 @@ function speak(text) {
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ko-KR';
   if (koreanVoice) u.voice = koreanVoice;
-  u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+  u.rate = speechRate; u.pitch = 1.0; u.volume = 1.0;
   const btn = document.getElementById('speak-btn');
   if (btn) btn.classList.add('playing');
   u.onend = () => { if (btn) btn.classList.remove('playing'); };
@@ -542,6 +627,23 @@ function speak(text) {
 function speakSummary() {
   if (currentSummary) speak(currentSummary);
 }
+
+function previewVoice() {
+  speak('안녕하세요. 오늘의 날씨를 알려드리겠습니다.');
+}
+
+// 속도 슬라이더 핸들러 (DOM 갱신 후 연결)
+document.addEventListener('input', e => {
+  if (e.target && e.target.id === 'rate-slider') {
+    speechRate = parseFloat(e.target.value);
+    document.getElementById('rate-val').textContent = speechRate.toFixed(2) + '×';
+    localStorage.setItem('speechRate', speechRate);
+  }
+});
+document.addEventListener('DOMContentLoaded', () => {
+  const s = document.getElementById('rate-slider');
+  if (s) { s.value = speechRate; document.getElementById('rate-val').textContent = speechRate.toFixed(2) + '×'; }
+});
 
 let googleToken = null;
 function googleAuth() {
