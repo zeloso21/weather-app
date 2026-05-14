@@ -1,4 +1,4 @@
-const CACHE = 'weather-app-v6';
+const CACHE = 'weather-app-v7';
 const ASSETS = [
   './',
   './index.html',
