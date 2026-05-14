@@ -570,7 +570,7 @@ function googleAuth() {
     scope: 'https://www.googleapis.com/auth/calendar.readonly',
     callback: r => { if (r.access_token) { googleToken = r.access_token; loadEvents(); } }
   });
-  tc.requestAccessToken();
+  tc.requestAccessToken({ prompt: 'select_account' });
 }
 
 async function loadEvents() {
