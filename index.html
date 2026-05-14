@@ -553,29 +553,56 @@ function rebuildSummary() {
 
 // ===== 음성 재생 (TTS) =====
 let currentSummary = '';
-let koreanVoice = null;
+let koreanVoice = null;  // SpeechSynthesisVoice 객체 또는 'clova:speaker' 문자열
 let speechRate = parseFloat(localStorage.getItem('speechRate') || '0.95');
+let clovaProxyUrl = localStorage.getItem('clovaProxyUrl') || '';
+let currentAudio = null;
+
+// 클로바 화자 목록 (Premium은 v로 시작)
+const CLOVA_SPEAKERS = [
+  { id: 'vmikyung', label: '🌟 미경 (Premium 아나운서, 여)', isPremium: true },
+  { id: 'vdaeseong', label: '🌟 대성 (Premium 아나운서, 남)', isPremium: true },
+  { id: 'vara', label: '🌟 아라 (Premium 여성)', isPremium: true },
+  { id: 'vian', label: '🌟 이안 (Premium 남성)', isPremium: true },
+  { id: 'vyuna', label: '🌟 유나 (Premium 차분, 여)', isPremium: true },
+  { id: 'nara', label: '나라 (여성, 친근)' },
+  { id: 'nara_call', label: '나라 (콜센터 스타일)' },
+  { id: 'jinho', label: '진호 (남성, 차분)' },
+  { id: 'mijin', label: '미진 (여성)' },
+  { id: 'shinji', label: '신지 (남성)' }
+];
 
 function pickKoreanVoice() {
   const voices = speechSynthesis.getVoices();
+  const saved = localStorage.getItem('preferredVoice');
+
+  if (saved) {
+    if (saved.startsWith('clova:')) { koreanVoice = saved; populateVoiceList(); return; }
+    if (saved.startsWith('sys:')) {
+      const v = voices.find(v => v.name === saved.slice(4));
+      if (v) { koreanVoice = v; populateVoiceList(); return; }
+    }
+    const v = voices.find(v => v.name === saved);
+    if (v) { koreanVoice = v; populateVoiceList(); return; }
+  }
+
+  // 클로바 프록시가 설정돼 있으면 클로바 미경(아나운서)이 기본
+  if (clovaProxyUrl) {
+    koreanVoice = 'clova:vmikyung';
+    populateVoiceList();
+    return;
+  }
+
   if (!voices.length) return;
   const koVoices = voices.filter(v => v.lang.startsWith('ko'));
   if (!koVoices.length) { populateVoiceList(); return; }
 
-  // 저장된 선호 보이스 복원
-  const saved = localStorage.getItem('preferredVoice');
-  if (saved) {
-    const v = koVoices.find(v => v.name === saved);
-    if (v) { koreanVoice = v; populateVoiceList(); return; }
-  }
-
-  // 자연스러운 보이스 우선순위 (아나운서스러운 것)
   const priority = [
-    /google.*한국|google.*korea|google.*ko-?kr/i, // Android Chrome - 가장 자연스러움
-    /yuna/i,                                       // iOS/macOS Apple Premium
-    /neural|natural|wavenet|premium|enhanced/i,    // 신경망 기반
-    /sunhi|heami|injoon|gook/i,                    // Windows Microsoft
-    /female|여성/i                                  // 여성 보이스 (아나운서 느낌)
+    /google.*한국|google.*korea|google.*ko-?kr/i,
+    /yuna/i,
+    /neural|natural|wavenet|premium|enhanced/i,
+    /sunhi|heami|injoon|gook/i,
+    /female|여성/i
   ];
   for (const re of priority) {
     const v = koVoices.find(v => re.test(v.name));
@@ -589,18 +616,47 @@ function populateVoiceList() {
   const select = document.getElementById('voice-select');
   if (!select) return;
   const voices = speechSynthesis.getVoices().filter(v => v.lang.startsWith('ko'));
-  if (!voices.length) {
-    select.innerHTML = '<option>한국어 음성 없음 (브라우저/OS에서 추가 필요)</option>';
-    select.disabled = true;
-    return;
+
+  let html = '';
+  if (clovaProxyUrl) {
+    html += '<optgroup label="🎙️ 네이버 클로바 (아나운서급)">';
+    for (const s of CLOVA_SPEAKERS) {
+      const val = 'clova:' + s.id;
+      html += `<option value="${val}" ${koreanVoice === val ? 'selected' : ''}>${s.label}</option>`;
+    }
+    html += '</optgroup>';
   }
+  if (voices.length) {
+    html += '<optgroup label="📱 시스템 보이스">';
+    for (const v of voices) {
+      const isSel = koreanVoice && typeof koreanVoice === 'object' && v.name === koreanVoice.name;
+      html += `<option value="sys:${v.name}" ${isSel ? 'selected' : ''}>${v.name}</option>`;
+    }
+    html += '</optgroup>';
+  }
+  html += '<option value="__config__">⚙️ 클로바 프록시 URL 설정...</option>';
+
+  select.innerHTML = html;
   select.disabled = false;
-  select.innerHTML = voices.map(v =>
-    `<option value="${v.name}" ${koreanVoice && v.name === koreanVoice.name ? 'selected' : ''}>${v.name}</option>`
-  ).join('');
   select.onchange = () => {
-    koreanVoice = voices.find(v => v.name === select.value);
-    localStorage.setItem('preferredVoice', select.value);
+    const v = select.value;
+    if (v === '__config__') {
+      const url = prompt('Cloudflare Workers URL 입력 (https://xxx.workers.dev)', clovaProxyUrl);
+      if (url !== null) {
+        clovaProxyUrl = url.trim().replace(/\/$/, '');
+        localStorage.setItem('clovaProxyUrl', clovaProxyUrl);
+      }
+      pickKoreanVoice();
+      return;
+    }
+    if (v.startsWith('clova:')) {
+      koreanVoice = v;
+      localStorage.setItem('preferredVoice', v);
+    } else if (v.startsWith('sys:')) {
+      const name = v.slice(4);
+      const sysVoice = speechSynthesis.getVoices().find(x => x.name === name);
+      if (sysVoice) { koreanVoice = sysVoice; localStorage.setItem('preferredVoice', 'sys:' + name); }
+    }
     previewVoice();
   };
 }
@@ -610,14 +666,46 @@ if ('speechSynthesis' in window) {
   speechSynthesis.onvoiceschanged = pickKoreanVoice;
 }
 
-function speak(text) {
-  if (!('speechSynthesis' in window)) { alert('이 브라우저는 음성을 지원하지 않습니다'); return; }
-  speechSynthesis.cancel();
+async function speak(text) {
+  // 기존 재생 중지
+  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
+  if ('speechSynthesis' in window) speechSynthesis.cancel();
+
+  const btn = document.getElementById('speak-btn');
+
+  // 클로바 보이스 사용
+  if (typeof koreanVoice === 'string' && koreanVoice.startsWith('clova:')) {
+    if (!clovaProxyUrl) { alert('먼저 클로바 프록시 URL을 설정하세요'); return; }
+    const speaker = koreanVoice.slice(6);
+    if (btn) btn.classList.add('playing');
+    try {
+      const speed = Math.round((1 - speechRate) * 5); // 0.95→0, 0.7→2, 1.3→-2 정도
+      const resp = await fetch(clovaProxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, speaker, speed })
+      });
+      if (!resp.ok) { throw new Error(await resp.text()); }
+      const blob = await resp.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudio = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); if (btn) btn.classList.remove('playing'); currentAudio = null; };
+      audio.onerror = () => { if (btn) btn.classList.remove('playing'); currentAudio = null; };
+      await audio.play();
+    } catch (e) {
+      if (btn) btn.classList.remove('playing');
+      alert('클로바 음성 실패: ' + e.message);
+    }
+    return;
+  }
+
+  // 시스템 TTS
+  if (!('speechSynthesis' in window)) { alert('음성 미지원'); return; }
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ko-KR';
-  if (koreanVoice) u.voice = koreanVoice;
+  if (koreanVoice && typeof koreanVoice === 'object') u.voice = koreanVoice;
   u.rate = speechRate; u.pitch = 1.0; u.volume = 1.0;
-  const btn = document.getElementById('speak-btn');
   if (btn) btn.classList.add('playing');
   u.onend = () => { if (btn) btn.classList.remove('playing'); };
   u.onerror = () => { if (btn) btn.classList.remove('playing'); };
