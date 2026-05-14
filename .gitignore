@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+.DS_Store
+make_icons.py
+서버실행.bat

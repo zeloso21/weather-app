@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>날씨앱</title>
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#667eea" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="날씨" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" type="image/png" href="icons/icon-192.png" />
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Malgun Gothic", sans-serif;
+    min-height: 100vh;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px; color: #fff;
+  }
+  .app {
+    width: 100%; max-width: 480px;
+    background: rgba(255,255,255,0.15);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-radius: 24px; padding: 32px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  h1 { font-size: 22px; margin-bottom: 20px; font-weight: 600; }
+  .search { display: flex; gap: 8px; margin-bottom: 12px; }
+  .search input {
+    flex: 1; padding: 12px 16px; border: none; border-radius: 12px;
+    background: rgba(255,255,255,0.9); color: #333; font-size: 15px; outline: none;
+  }
+  .search button, .gps-btn {
+    padding: 12px 18px; border: none; border-radius: 12px;
+    background: #fff; color: #667eea; font-weight: 600; cursor: pointer;
+    transition: transform 0.1s; font-size: 14px;
+  }
+  .gps-btn {
+    width: 100%; margin-bottom: 20px; padding: 12px;
+    background: rgba(255,255,255,0.25); color: #fff;
+    border: 1px solid rgba(255,255,255,0.3);
+  }
+  .gps-btn:hover { background: rgba(255,255,255,0.35); }
+  .search button:hover { transform: translateY(-1px); }
+  .quick { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 24px; }
+  .quick span {
+    padding: 6px 12px; background: rgba(255,255,255,0.2);
+    border-radius: 20px; font-size: 13px; cursor: pointer;
+    transition: background 0.2s;
+  }
+  .quick span:hover { background: rgba(255,255,255,0.35); }
+  .current { text-align: center; padding: 16px 0 24px; }
+  .city { font-size: 18px; opacity: 0.9; margin-bottom: 8px; }
+  .icon { font-size: 80px; line-height: 1; margin: 8px 0; }
+  .temp { font-size: 64px; font-weight: 300; }
+  .desc { font-size: 16px; opacity: 0.9; margin-top: 4px; }
+  .rain-now {
+    margin-top: 12px; display: inline-block;
+    padding: 6px 14px; background: rgba(70,130,255,0.3);
+    border-radius: 20px; font-size: 14px;
+  }
+  .meta {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    gap: 8px; margin-top: 20px;
+  }
+  .meta div {
+    background: rgba(255,255,255,0.15); padding: 10px 4px; border-radius: 12px;
+    text-align: center; font-size: 12px;
+  }
+  .meta strong { display: block; font-size: 14px; margin-top: 4px; font-weight: 600; }
+  .forecast, .calendar {
+    margin-top: 24px; padding-top: 20px;
+    border-top: 1px solid rgba(255,255,255,0.2);
+  }
+  .forecast h2, .calendar h2 { font-size: 15px; margin-bottom: 12px; opacity: 0.9; }
+  .days { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  .day {
+    background: rgba(255,255,255,0.12); border-radius: 12px;
+    padding: 12px 6px; text-align: center; font-size: 13px;
+  }
+  .day .d-icon { font-size: 28px; margin: 6px 0; }
+  .day .d-temp { font-weight: 600; }
+  .day .d-low { opacity: 0.7; font-size: 12px; }
+  .day .d-rain { font-size: 11px; color: #b3d4ff; margin-top: 4px; }
+  .loading, .error { text-align: center; padding: 24px; opacity: 0.85; }
+  .error { color: #ffd2d2; }
+  .cal-btn {
+    width: 100%; padding: 10px; border: none; border-radius: 10px;
+    background: rgba(255,255,255,0.25); color: #fff; cursor: pointer;
+    font-size: 14px; border: 1px solid rgba(255,255,255,0.3);
+  }
+  .cal-btn:hover { background: rgba(255,255,255,0.35); }
+  .event {
+    background: rgba(255,255,255,0.12); padding: 10px 12px;
+    border-radius: 10px; margin-bottom: 6px; font-size: 13px;
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  .event .e-time { opacity: 0.8; font-size: 12px; white-space: nowrap; }
+  .cal-info { font-size: 12px; opacity: 0.75; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>🌤️ 날씨앱</h1>
+  <div class="search">
+    <input id="q" type="text" placeholder="도시 이름 (예: 서울, Tokyo)" />
+    <button onclick="search()">검색</button>
+  </div>
+  <button class="gps-btn" onclick="useGPS()">📍 현재 위치 사용</button>
+  <div class="quick">
+    <span onclick="load('서울')">서울</span>
+    <span onclick="load('부산')">부산</span>
+    <span onclick="load('제주')">제주</span>
+    <span onclick="load('Tokyo')">도쿄</span>
+    <span onclick="load('New York')">뉴욕</span>
+  </div>
+  <div id="result"><div class="loading">위치를 가져오는 중...</div></div>
+
+  <div class="calendar">
+    <h2>📅 구글 캘린더 (오늘 일정)</h2>
+    <div id="cal-result">
+      <div class="cal-info">
+        Google Cloud에서 OAuth Client ID를 발급받아 아래 <code>GOOGLE_CLIENT_ID</code>에 입력 후
+        <code>python -m http.server 8000</code>으로 실행하세요.
+      </div>
+      <button class="cal-btn" style="margin-top:12px;" onclick="googleAuth()">구글 캘린더 연결</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ⚠️ 여기에 Google Cloud Console에서 발급받은 OAuth Client ID를 입력하세요
+const GOOGLE_CLIENT_ID = 'YOUR_CLIENT_ID.apps.googleusercontent.com';
+
+const WMO = {
+  0:['☀️','맑음'], 1:['🌤️','대체로 맑음'], 2:['⛅','부분적 흐림'], 3:['☁️','흐림'],
+  45:['🌫️','안개'], 48:['🌫️','짙은 안개'],
+  51:['🌦️','약한 이슬비'], 53:['🌦️','이슬비'], 55:['🌧️','강한 이슬비'],
+  61:['🌦️','약한 비'], 63:['🌧️','비'], 65:['🌧️','강한 비'],
+  71:['🌨️','약한 눈'], 73:['🌨️','눈'], 75:['❄️','강한 눈'], 77:['🌨️','싸락눈'],
+  80:['🌦️','소나기'], 81:['🌧️','강한 소나기'], 82:['⛈️','폭우'],
+  85:['🌨️','약한 눈 소나기'], 86:['❄️','강한 눈 소나기'],
+  95:['⛈️','뇌우'], 96:['⛈️','우박 동반 뇌우'], 99:['⛈️','강한 우박 뇌우']
+};
+const wmo = c => WMO[c] || ['❓','알 수 없음'];
+
+async function load(city) {
+  const r = document.getElementById('result');
+  r.innerHTML = '<div class="loading">불러오는 중...</div>';
+  try {
+    const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko`).then(x => x.json());
+    if (!geo.results || !geo.results.length) {
+      r.innerHTML = '<div class="error">도시를 찾을 수 없습니다</div>'; return;
+    }
+    const g = geo.results[0];
+    await loadByCoords(g.latitude, g.longitude, [g.name, g.admin1, g.country].filter(Boolean).join(', '));
+  } catch (e) {
+    r.innerHTML = '<div class="error">날씨 정보를 가져올 수 없습니다</div>';
+  }
+}
+
+async function loadByCoords(lat, lon, placeName) {
+  const r = document.getElementById('result');
+  r.innerHTML = '<div class="loading">불러오는 중...</div>';
+  try {
+    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max&timezone=auto&forecast_days=5`).then(x => x.json());
+
+    let name = placeName;
+    if (!name) {
+      try {
+        const rev = await fetch(`https://geocoding-api.open-meteo.com/v1/reverse?latitude=${lat}&longitude=${lon}&language=ko`).then(x => x.json());
+        if (rev.results && rev.results[0]) {
+          const g = rev.results[0];
+          name = [g.name, g.admin1, g.country].filter(Boolean).join(', ');
+        } else {
+          name = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+        }
+      } catch { name = `${lat.toFixed(2)}, ${lon.toFixed(2)}`; }
+    }
+    render(name, w);
+  } catch (e) {
+    r.innerHTML = '<div class="error">날씨 정보를 가져올 수 없습니다</div>';
+  }
+}
+
+function render(place, w) {
+  const c = w.current, d = w.daily;
+  const [icon, desc] = wmo(c.weather_code);
+  let html = `
+    <div class="current">
+      <div class="city">📍 ${place}</div>
+      <div class="icon">${icon}</div>
+      <div class="temp">${Math.round(c.temperature_2m)}°</div>
+      <div class="desc">${desc}</div>
+      ${c.precipitation > 0 ? `<div class="rain-now">💧 현재 강수량 ${c.precipitation} mm</div>` : ''}
+      <div class="meta">
+        <div>습도<strong>${c.relative_humidity_2m}%</strong></div>
+        <div>바람<strong>${c.wind_speed_10m} km/h</strong></div>
+        <div>강수확률<strong>${d.precipitation_probability_max[0]}%</strong></div>
+        <div>최고/최저<strong>${Math.round(d.temperature_2m_max[0])}°/${Math.round(d.temperature_2m_min[0])}°</strong></div>
+      </div>
+    </div>
+    <div class="forecast">
+      <h2>5일 예보</h2>
+      <div class="days">`;
+  const days = ['일','월','화','수','목','금','토'];
+  for (let i = 0; i < d.time.length; i++) {
+    const dt = new Date(d.time[i]);
+    const label = i === 0 ? '오늘' : days[dt.getDay()];
+    const [di] = wmo(d.weather_code[i]);
+    const rain = d.precipitation_sum[i];
+    const rainProb = d.precipitation_probability_max[i] || 0;
+    html += `<div class="day">
+      <div>${label}</div>
+      <div class="d-icon">${di}</div>
+      <div class="d-temp">${Math.round(d.temperature_2m_max[i])}°</div>
+      <div class="d-low">${Math.round(d.temperature_2m_min[i])}°</div>
+      <div class="d-rain">💧 ${rainProb}%${rain > 0 ? `<br>${rain}mm` : ''}</div>
+    </div>`;
+  }
+  html += '</div></div>';
+  document.getElementById('result').innerHTML = html;
+}
+
+function search() {
+  const v = document.getElementById('q').value.trim();
+  if (v) load(v);
+}
+document.getElementById('q').addEventListener('keypress', e => {
+  if (e.key === 'Enter') search();
+});
+
+function useGPS() {
+  if (!navigator.geolocation) {
+    alert('이 브라우저는 GPS를 지원하지 않습니다'); return;
+  }
+  document.getElementById('result').innerHTML = '<div class="loading">현재 위치를 가져오는 중...</div>';
+  navigator.geolocation.getCurrentPosition(
+    pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, null),
+    err => {
+      document.getElementById('result').innerHTML =
+        `<div class="error">위치 권한이 거부되었거나 가져오지 못했습니다<br><small>${err.message}</small></div>`;
+    },
+    { timeout: 10000, enableHighAccuracy: false }
+  );
+}
+
+// ===== Google Calendar =====
+let googleToken = null;
+
+function googleAuth() {
+  if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) {
+    document.getElementById('cal-result').innerHTML =
+      '<div class="error">먼저 GOOGLE_CLIENT_ID를 설정해주세요 (README 참고)</div>';
+    return;
+  }
+  if (!window.google || !google.accounts) {
+    document.getElementById('cal-result').innerHTML =
+      '<div class="error">Google 라이브러리 로드 실패. 인터넷 연결을 확인하세요.</div>';
+    return;
+  }
+  const tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: GOOGLE_CLIENT_ID,
+    scope: 'https://www.googleapis.com/auth/calendar.readonly',
+    callback: (resp) => {
+      if (resp.access_token) {
+        googleToken = resp.access_token;
+        loadEvents();
+      } else {
+        document.getElementById('cal-result').innerHTML =
+          '<div class="error">인증 실패</div>';
+      }
+    }
+  });
+  tokenClient.requestAccessToken();
+}
+
+async function loadEvents() {
+  const el = document.getElementById('cal-result');
+  el.innerHTML = '<div class="loading">일정 불러오는 중...</div>';
+  try {
+    const now = new Date();
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 5).toISOString();
+    const url = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${encodeURIComponent(start)}&timeMax=${encodeURIComponent(end)}&singleEvents=true&orderBy=startTime&maxResults=20`;
+    const data = await fetch(url, { headers: { Authorization: `Bearer ${googleToken}` } }).then(x => x.json());
+    if (!data.items || !data.items.length) {
+      el.innerHTML = '<div class="cal-info">앞으로 5일간 일정이 없습니다</div>';
+      return;
+    }
+    let html = '';
+    for (const ev of data.items) {
+      const s = ev.start.dateTime || ev.start.date;
+      const dt = new Date(s);
+      const timeStr = ev.start.dateTime
+        ? `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
+        : `${dt.getMonth()+1}/${dt.getDate()} 종일`;
+      html += `<div class="event"><span>${ev.summary || '(제목 없음)'}</span><span class="e-time">${timeStr}</span></div>`;
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="error">일정을 가져올 수 없습니다</div>';
+  }
+}
+
+// Service Worker 등록 (PWA)
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js').catch(e => console.log('SW 등록 실패:', e));
+  });
+}
+
+// 시작 시 GPS 자동 시도
+window.addEventListener('load', () => {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, null),
+      () => load('서울'),
+      { timeout: 5000 }
+    );
+  } else {
+    load('서울');
+  }
+});
+</script>
+</body>
+</html>
