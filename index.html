@@ -93,6 +93,15 @@
     margin-bottom: 10px; display: flex; align-items: center; gap: 4px;
   }
   .summary { font-size: 15px; line-height: 1.5; padding: 4px 0; }
+  .summary-row { display: flex; align-items: flex-start; gap: 10px; }
+  .summary-row .summary { flex: 1; }
+  .speak-btn {
+    flex: 0 0 auto; background: rgba(255,255,255,0.15); border: none;
+    color: #fff; font-size: 20px; padding: 8px 12px; border-radius: 12px;
+    cursor: pointer; transition: background 0.15s;
+  }
+  .speak-btn:hover, .speak-btn:active { background: rgba(255,255,255,0.3); }
+  .speak-btn.playing { background: rgba(100,200,255,0.4); }
 
   .hourly { display: flex; gap: 4px; overflow-x: auto; padding: 4px 0; scrollbar-width: none; }
   .hourly::-webkit-scrollbar { display: none; }
@@ -285,14 +294,18 @@ function render(place, w) {
   const sunsetStr = `${sunsetTime.getHours()}시 ${String(sunsetTime.getMinutes()).padStart(2,'0')}분`;
 
   const rainProb = d.precipitation_probability_max[0] || 0;
-  let summary;
+  let summary, summarySpeech;
   if (rainProb === 0) {
     summary = `화창한 날씨네요 ☀️ 최저 기온은 ${todayLo}도이고 최고 기온은 ${todayHi}도입니다. 좋은 하루 되세요~`;
+    summarySpeech = `화창한 날씨네요. 최저 기온은 ${todayLo}도이고, 최고 기온은 ${todayHi}도입니다. 좋은 하루 되세요.`;
   } else if (rainProb < 50) {
     summary = `비가 올 수도 있어요 🌦️ 최저 기온은 ${todayLo}도이고 최고 기온은 ${todayHi}도입니다. 강수확률은 ${rainProb}%예요. 멋진 하루 되세요~`;
+    summarySpeech = `비가 올 수도 있어요. 최저 기온은 ${todayLo}도이고, 최고 기온은 ${todayHi}도입니다. 강수 확률은 ${rainProb} 퍼센트예요. 멋진 하루 되세요.`;
   } else {
     summary = `오늘 비가 와요 ☔ 우산을 꼭 챙기세요! 강수확률 ${rainProb}%, 최저 ${todayLo}도 · 최고 ${todayHi}도입니다. 행복한 하루 되세요!`;
+    summarySpeech = `오늘 비가 와요. 우산을 꼭 챙기세요! 강수 확률은 ${rainProb} 퍼센트, 최저 기온은 ${todayLo}도, 최고 기온은 ${todayHi}도입니다. 행복한 하루 되세요!`;
   }
+  currentSummary = summarySpeech;
 
   // 시간별 예보 (현재부터 24시간)
   const nowIdx = h.time.findIndex(t => new Date(t) > new Date()) - 1;
@@ -369,7 +382,10 @@ function render(place, w) {
     </div>
 
     <div class="card">
-      <div class="summary">${summary}</div>
+      <div class="summary-row">
+        <div class="summary" id="summary-text">${summary}</div>
+        <button class="speak-btn" id="speak-btn" onclick="speakSummary()" title="음성으로 듣기">🔊</button>
+      </div>
     </div>
 
     <div class="card">
@@ -410,6 +426,37 @@ function useGPS() {
     },
     { timeout: 10000 }
   );
+}
+
+// ===== 음성 재생 (TTS) =====
+let currentSummary = '';
+let koreanVoice = null;
+
+function pickKoreanVoice() {
+  const voices = speechSynthesis.getVoices();
+  koreanVoice = voices.find(v => v.lang === 'ko-KR') || voices.find(v => v.lang.startsWith('ko')) || null;
+}
+if ('speechSynthesis' in window) {
+  pickKoreanVoice();
+  speechSynthesis.onvoiceschanged = pickKoreanVoice;
+}
+
+function speak(text) {
+  if (!('speechSynthesis' in window)) { alert('이 브라우저는 음성을 지원하지 않습니다'); return; }
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'ko-KR';
+  if (koreanVoice) u.voice = koreanVoice;
+  u.rate = 1.0; u.pitch = 1.0; u.volume = 1.0;
+  const btn = document.getElementById('speak-btn');
+  if (btn) btn.classList.add('playing');
+  u.onend = () => { if (btn) btn.classList.remove('playing'); };
+  u.onerror = () => { if (btn) btn.classList.remove('playing'); };
+  speechSynthesis.speak(u);
+}
+
+function speakSummary() {
+  if (currentSummary) speak(currentSummary);
 }
 
 let googleToken = null;
