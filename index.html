@@ -42,13 +42,51 @@
     border: 1px solid rgba(255,255,255,0.18);
   }
   body.day .tabbar { background: rgba(20, 60, 110, 0.7); }
-  #stars {
+
+  /* 비 오는 날 배경 */
+  body.rainy {
+    background:
+      radial-gradient(ellipse at top, #3a4a5e 0%, transparent 60%),
+      linear-gradient(180deg, #2c3e50 0%, #34495e 40%, #4a5f78 100%);
+  }
+  body.rainy.night {
+    background:
+      radial-gradient(ellipse at top, #1a2535 0%, transparent 60%),
+      linear-gradient(180deg, #0f1a2a 0%, #1a2a3e 50%, #08111c 100%);
+  }
+  body.rainy .card { background: rgba(40, 55, 75, 0.45); }
+  body.rainy .tabbar { background: rgba(20, 35, 55, 0.85); }
+
+  /* 눈 오는 날 배경 */
+  body.snowy {
+    background:
+      radial-gradient(ellipse at top, #d8e3ec 0%, transparent 60%),
+      linear-gradient(180deg, #8aa4bd 0%, #a8bccf 50%, #c8d8e6 100%);
+  }
+  body.snowy.night {
+    background:
+      radial-gradient(ellipse at top, #3a4658 0%, transparent 60%),
+      linear-gradient(180deg, #2a3548 0%, #3a4a60 50%, #1c2536 100%);
+  }
+  body.snowy .card {
+    background: rgba(30, 50, 80, 0.35);
+    border: 1px solid rgba(255,255,255,0.2);
+  }
+  body.snowy.night .card { background: rgba(40, 55, 80, 0.45); }
+  body.snowy .tabbar { background: rgba(50, 70, 100, 0.75); }
+
+  #stars, #rain, #snow {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     pointer-events: none; z-index: 0;
     transition: opacity 1.2s ease;
   }
-  body.day #stars { opacity: 0; }
+  #rain, #snow { opacity: 0; }
   body.night #stars { opacity: 1; }
+  body.day #stars { opacity: 0; }
+  body.rainy #stars { opacity: 0; }
+  body.snowy #stars { opacity: 0; }
+  body.rainy #rain { opacity: 1; }
+  body.snowy #snow { opacity: 1; }
   .star {
     position: absolute; background: #fff; border-radius: 50%;
     animation: twinkle 3s infinite ease-in-out;
@@ -56,6 +94,26 @@
   @keyframes twinkle {
     0%, 100% { opacity: 0.3; }
     50% { opacity: 1; }
+  }
+  .raindrop {
+    position: absolute; width: 1.5px;
+    background: linear-gradient(to bottom, transparent, rgba(180,210,240,0.8));
+    animation: rainfall linear infinite;
+  }
+  @keyframes rainfall {
+    0% { transform: translateY(-100px); }
+    100% { transform: translateY(110vh); }
+  }
+  .snowflake {
+    position: absolute; color: #fff; user-select: none;
+    animation: snowfall linear infinite;
+    text-shadow: 0 0 4px rgba(255,255,255,0.5);
+  }
+  @keyframes snowfall {
+    0% { transform: translateY(-50px) translateX(0); opacity: 0; }
+    10% { opacity: 1; }
+    90% { opacity: 1; }
+    100% { transform: translateY(110vh) translateX(40px); opacity: 0; }
   }
   .app {
     position: relative; z-index: 1;
@@ -203,6 +261,8 @@
 </head>
 <body>
 <div id="stars"></div>
+<div id="rain"></div>
+<div id="snow"></div>
 
 <div class="app">
   <div class="top-bar">
@@ -245,14 +305,29 @@ const WMO = {
 };
 const wmo = c => WMO[c] || ['❓','알 수 없음','알 수 없음'];
 
-// 시간대별 테마 (0~9시: 밤, 그 외: 낮)
+// 시간대별 테마 (낮 07~19시, 밤 19~07시) + 날씨 상태
+let currentWeatherCode = null;
+const RAIN_CODES = new Set([51,53,55,61,63,65,80,81,82,95,96,99]);
+const SNOW_CODES = new Set([71,73,75,77,85,86]);
+
 function updateTheme() {
   const h = new Date().getHours();
-  const isNight = h >= 0 && h < 9;
+  const isNight = h >= 19 || h < 7;
   document.body.classList.toggle('night', isNight);
   document.body.classList.toggle('day', !isNight);
+
+  const isRain = currentWeatherCode != null && RAIN_CODES.has(currentWeatherCode);
+  const isSnow = currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
+  document.body.classList.toggle('rainy', isRain);
+  document.body.classList.toggle('snowy', isSnow);
+
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', isNight ? '#0d0d2e' : '#4ea3dc');
+  if (meta) {
+    let color = isNight ? '#0d0d2e' : '#4ea3dc';
+    if (isRain) color = isNight ? '#0f1a2a' : '#34495e';
+    else if (isSnow) color = isNight ? '#2a3548' : '#a8bccf';
+    meta.setAttribute('content', color);
+  }
 }
 updateTheme();
 setInterval(updateTheme, 60000);
@@ -273,6 +348,40 @@ function makeStars() {
   sky.innerHTML = html;
 }
 makeStars();
+
+// 빗방울 생성
+function makeRain() {
+  const el = document.getElementById('rain');
+  const count = 80;
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * 100;
+    const len = 14 + Math.random() * 20;
+    const dur = 0.5 + Math.random() * 0.6;
+    const delay = Math.random() * 2;
+    const opacity = 0.4 + Math.random() * 0.5;
+    html += `<div class="raindrop" style="left:${x}%;height:${len}px;animation-duration:${dur}s;animation-delay:${delay}s;opacity:${opacity}"></div>`;
+  }
+  el.innerHTML = html;
+}
+makeRain();
+
+// 눈송이 생성
+function makeSnow() {
+  const el = document.getElementById('snow');
+  const count = 60;
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const x = Math.random() * 100;
+    const size = 8 + Math.random() * 12;
+    const dur = 6 + Math.random() * 6;
+    const delay = Math.random() * 6;
+    const opacity = 0.6 + Math.random() * 0.4;
+    html += `<div class="snowflake" style="left:${x}%;font-size:${size}px;animation-duration:${dur}s;animation-delay:${delay}s;opacity:${opacity}">❄</div>`;
+  }
+  el.innerHTML = html;
+}
+makeSnow();
 
 function toggleSearch() {
   document.getElementById('searchWrap').classList.toggle('open');
@@ -334,6 +443,8 @@ async function loadByCoords(lat, lon, placeName) {
 function render(place, w) {
   const c = w.current, h = w.hourly, d = w.daily;
   const [icon, desc, longDesc] = wmo(c.weather_code);
+  currentWeatherCode = c.weather_code;
+  updateTheme();
   const todayHi = Math.round(d.temperature_2m_max[0]);
   const todayLo = Math.round(d.temperature_2m_min[0]);
   const sunsetTime = new Date(d.sunset[0]);
