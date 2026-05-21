@@ -43,6 +43,24 @@
   }
   body.day .tabbar { background: rgba(20, 60, 110, 0.7); }
 
+  /* 흐린 날 배경 */
+  body.cloudy {
+    background:
+      radial-gradient(ellipse at top, #b5c2d1 0%, transparent 70%),
+      linear-gradient(180deg, #7a8a9e 0%, #95a5b8 50%, #b8c6d6 100%);
+  }
+  body.cloudy.night {
+    background:
+      radial-gradient(ellipse at top, #2a3340 0%, transparent 70%),
+      linear-gradient(180deg, #1c2530 0%, #2a3544 50%, #0e1620 100%);
+  }
+  body.cloudy .card {
+    background: rgba(40, 55, 75, 0.35);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+  body.cloudy.night .card { background: rgba(40, 55, 75, 0.5); }
+  body.cloudy .tabbar { background: rgba(40, 55, 75, 0.8); }
+
   /* 비 오는 날 배경 */
   body.rainy {
     background:
@@ -317,19 +335,24 @@ function updateTheme() {
   document.body.classList.toggle('night', isNight);
   document.body.classList.toggle('day', !isNight);
 
-  const codeIsRain = currentWeatherCode != null && RAIN_CODES.has(currentWeatherCode);
-  const codeIsSnow = currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
-  // 강수확률 50% 이상이면 비/눈으로 간주 (눈 코드면 눈, 아니면 비)
-  const isSnow = codeIsSnow;
-  const isRain = (codeIsRain || currentRainProb >= 50) && !isSnow;
+  // 눈은 weather_code 기준, 그 외는 강수확률(현재 시간) 기준으로 분기
+  // 0~40% 맑음 / 40~70% 흐림 / 70~100% 비 내림
+  const isSnow = currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
+  let isRain = false, isCloudy = false;
+  if (!isSnow) {
+    if (currentRainProb >= 70) isRain = true;
+    else if (currentRainProb >= 40) isCloudy = true;
+  }
   document.body.classList.toggle('rainy', isRain);
   document.body.classList.toggle('snowy', isSnow);
+  document.body.classList.toggle('cloudy', isCloudy);
 
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
     let color = isNight ? '#0d0d2e' : '#4ea3dc';
-    if (isRain) color = isNight ? '#0f1a2a' : '#34495e';
-    else if (isSnow) color = isNight ? '#2a3548' : '#a8bccf';
+    if (isSnow) color = isNight ? '#2a3548' : '#a8bccf';
+    else if (isRain) color = isNight ? '#0f1a2a' : '#34495e';
+    else if (isCloudy) color = isNight ? '#2a3544' : '#95a5b8';
     meta.setAttribute('content', color);
   }
 }
@@ -448,7 +471,11 @@ function render(place, w) {
   const c = w.current, h = w.hourly, d = w.daily;
   const [icon, desc, longDesc] = wmo(c.weather_code);
   currentWeatherCode = c.weather_code;
-  currentRainProb = w.daily.precipitation_probability_max[0] || 0;
+  // 현재 시간 기준 강수확률 (시간별 데이터에서 현재 시각에 해당하는 값)
+  const nowT = new Date();
+  let curIdx = h.time.findIndex(t => new Date(t) > nowT) - 1;
+  if (curIdx < 0) curIdx = 0;
+  currentRainProb = h.precipitation_probability[curIdx] || 0;
   updateTheme();
   const todayHi = Math.round(d.temperature_2m_max[0]);
   const todayLo = Math.round(d.temperature_2m_min[0]);
