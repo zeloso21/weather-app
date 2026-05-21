@@ -728,43 +728,66 @@ function rebuildSummary() {
 
 // ===== 음성 재생 (TTS) =====
 let currentSummary = '';
-let currentAudio = null;
-const SPEECH_RATE = 0.95;
-const CLOUD_VOICE = 'Seoyeon';
+const SPEECH_RATE = 1.0;
+let cachedKoVoice = null;
 
-async function speak(text) {
-  if (currentAudio) { currentAudio.pause(); currentAudio = null; }
-  if ('speechSynthesis' in window) speechSynthesis.cancel();
-  const btn = document.getElementById('speak-btn');
-
-  if (btn) btn.classList.add('playing');
-  try {
-    const url = `https://api.streamelements.com/kappa/v2/speech?voice=${encodeURIComponent(CLOUD_VOICE)}&text=${encodeURIComponent(text.slice(0, 500))}`;
-    const audio = new Audio(url);
-    audio.playbackRate = SPEECH_RATE;
-    currentAudio = audio;
-    audio.onended = () => { if (btn) btn.classList.remove('playing'); currentAudio = null; };
-    audio.onerror = () => {
-      if (btn) btn.classList.remove('playing');
-      currentAudio = null;
-      speakSystem(text);
+function loadVoicesOnce() {
+  return new Promise(resolve => {
+    if (!('speechSynthesis' in window)) { resolve([]); return; }
+    let v = speechSynthesis.getVoices();
+    if (v.length) { resolve(v); return; }
+    const handler = () => {
+      v = speechSynthesis.getVoices();
+      speechSynthesis.removeEventListener('voiceschanged', handler);
+      resolve(v);
     };
-    await audio.play();
-  } catch (e) {
-    if (btn) btn.classList.remove('playing');
-    speakSystem(text);
-  }
+    speechSynthesis.addEventListener('voiceschanged', handler);
+    // 안전망: 일부 브라우저는 voiceschanged 이벤트를 안 보냄
+    setTimeout(() => resolve(speechSynthesis.getVoices()), 1000);
+  });
 }
 
-function speakSystem(text) {
+async function pickKoreanVoice() {
+  if (cachedKoVoice) return cachedKoVoice;
+  const voices = await loadVoicesOnce();
+  if (!voices.length) return null;
+  // 선호 보이스 우선 (iOS Yuna, Windows Heami, Google Korean 등)
+  const prefer = ['Yuna', 'Heami', 'Sora', 'Google 한국의', 'Google 한국', 'Microsoft Heami'];
+  for (const name of prefer) {
+    const v = voices.find(x => x.name && x.name.includes(name));
+    if (v) { cachedKoVoice = v; return v; }
+  }
+  const ko = voices.find(v => /^ko/i.test(v.lang || ''));
+  cachedKoVoice = ko || null;
+  return cachedKoVoice;
+}
+
+async function speak(text) {
+  if (!('speechSynthesis' in window)) {
+    alert('이 브라우저는 음성 합성을 지원하지 않습니다.');
+    return;
+  }
+  speechSynthesis.cancel();
   const btn = document.getElementById('speak-btn');
-  if (!('speechSynthesis' in window)) return;
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'ko-KR'; u.rate = SPEECH_RATE; u.pitch = 1.0; u.volume = 1.0;
   if (btn) btn.classList.add('playing');
-  u.onend = () => { if (btn) btn.classList.remove('playing'); };
-  u.onerror = () => { if (btn) btn.classList.remove('playing'); };
-  speechSynthesis.speak(u);
+
+  // 긴 텍스트는 문장 단위로 쪼개기 (Chrome 200자 침묵 버그 회피)
+  const chunks = (text.match(/[^.!?\n]+[.!?\n]?/g) || [text])
+    .map(s => s.trim()).filter(Boolean);
+  const voice = await pickKoreanVoice();
+
+  let i = 0;
+  const next = () => {
+    if (i >= chunks.length) { if (btn) btn.classList.remove('playing'); return; }
+    const u = new SpeechSynthesisUtterance(chunks[i]);
+    u.lang = 'ko-KR';
+    u.rate = SPEECH_RATE; u.pitch = 1.0; u.volume = 1.0;
+    if (voice) u.voice = voice;
+    u.onend = () => { i++; next(); };
+    u.onerror = () => { if (btn) btn.classList.remove('playing'); };
+    speechSynthesis.speak(u);
+  };
+  next();
 }
 
 function speakSummary() {
