@@ -1020,7 +1020,7 @@ async function getEventWeather(location, eventTime) {
   const geo = await geocodeEventLocation(location);
   if (!geo) { eventWeatherCache.set(cacheKey, null); return null; }
   try {
-    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=3`).then(x => x.json());
+    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=3`).then(x => x.json());
     if (!w.hourly || !w.hourly.time) { eventWeatherCache.set(cacheKey, null); return null; }
     const target = eventTime.getTime();
     let bestIdx = 0, bestDiff = Infinity;
@@ -1041,13 +1041,22 @@ async function getEventWeather(location, eventTime) {
         }
       }
     }
-    const result = {
-      placeName: geo.name,
-      code: w.hourly.weather_code[bestIdx],
-      temp: w.hourly.temperature_2m[bestIdx],
-      rainProb: w.hourly.precipitation_probability[bestIdx] || 0,
-      lo, hi,
-    };
+    // 기본: 그 시각 예측값
+    let code = w.hourly.weather_code[bestIdx];
+    let temp = w.hourly.temperature_2m[bestIdx];
+    let rainProb = w.hourly.precipitation_probability[bestIdx] || 0;
+    // 이벤트가 현재 시각 근처(±30분)면 실제 관측값으로 보정
+    // — 예보 확률은 0%인데 실제론 비 오는 경우 방지
+    const isNow = Math.abs(eventTime.getTime() - Date.now()) < 30 * 60 * 1000;
+    if (isNow && w.current) {
+      code = w.current.weather_code;
+      temp = w.current.temperature_2m;
+      const curCode = w.current.weather_code;
+      if (w.current.precipitation > 0 || RAIN_CODES.has(curCode) || THUNDER_CODES.has(curCode) || SNOW_CODES.has(curCode)) {
+        rainProb = Math.max(rainProb, 80);
+      }
+    }
+    const result = { placeName: geo.name, code, temp, rainProb, lo, hi };
     eventWeatherCache.set(cacheKey, result);
     return result;
   } catch (e) {
@@ -1065,7 +1074,7 @@ function lookupCurrentForecastAt(eventTime) {
     const diff = Math.abs(new Date(h.time[i]).getTime() - target);
     if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
   }
-  // 이벤트 날짜에 맞는 일별 최저/최고 (현재 위치 기준)
+  // 이벤트 날짜에 맞는 일별 최저/최고
   let lo = null, hi = null;
   if (currentForecast.daily && currentForecast.daily.time) {
     const yyyy = eventTime.getFullYear(), mm = eventTime.getMonth(), dd = eventTime.getDate();
@@ -1079,12 +1088,22 @@ function lookupCurrentForecastAt(eventTime) {
       }
     }
   }
+  let code = h.weather_code[bestIdx];
+  let temp = h.temperature_2m[bestIdx];
+  let rainProb = h.precipitation_probability[bestIdx] || 0;
+  // 현재 시각 근처면 실제 관측값으로 보정
+  const isNow = Math.abs(eventTime.getTime() - Date.now()) < 30 * 60 * 1000;
+  if (isNow && currentForecast.current) {
+    const cur = currentForecast.current;
+    code = cur.weather_code;
+    temp = cur.temperature_2m;
+    if (cur.precipitation > 0 || RAIN_CODES.has(cur.weather_code) || THUNDER_CODES.has(cur.weather_code) || SNOW_CODES.has(cur.weather_code)) {
+      rainProb = Math.max(rainProb, 80);
+    }
+  }
   return {
     placeName: currentPlaceName || '현재 위치',
-    code: h.weather_code[bestIdx],
-    temp: h.temperature_2m[bestIdx],
-    rainProb: h.precipitation_probability[bestIdx] || 0,
-    lo, hi,
+    code, temp, rainProb, lo, hi,
     isCurrentLocation: true,
   };
 }
