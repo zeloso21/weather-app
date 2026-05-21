@@ -1289,20 +1289,24 @@ function updateArduinoUI() {
 }
 
 function isRainExpectedToday() {
-  // 1) 일정 + 그 시각/장소 강수확률 또는 비 코드
+  // 1) 30분 윈도우 안에 있는 일정 → 그 일정의 시각/장소 강수확률 기준
   if (todayEventsCache && todayEventsCache.length) {
+    const now = Date.now();
+    const WINDOW = 30 * 60 * 1000;
     for (const ev of todayEventsCache) {
       if (!ev._weather) continue;
+      if (ev.start.dateTime) {
+        const start = new Date(ev.start.dateTime).getTime();
+        const end = (ev.end && ev.end.dateTime) ? new Date(ev.end.dateTime).getTime() : start + 60 * 60 * 1000;
+        if (now < (start - WINDOW) || now > end) continue;
+      }
       const rp = ev._weather.rainProb || 0;
       const code = ev._weather.code;
       if (RAIN_CODES.has(code) || THUNDER_CODES.has(code) || rp >= 70) return true;
     }
   }
-  // 2) 폴백: 현재 위치 오늘 일일 강수확률 최댓값
-  if (currentForecast && currentForecast.daily) {
-    const mx = (currentForecast.daily.precipitation_probability_max || [])[0] || 0;
-    if (mx >= 70) return true;
-  }
+  // 2) 폴백: 현재 위치 · 현재 시각 강수확률
+  if (currentRainProb >= 70) return true;
   return false;
 }
 
@@ -1355,7 +1359,12 @@ async function readArduinoLoop(port) {
       while ((idx = buf.indexOf('\n')) >= 0) {
         const line = buf.slice(0, idx).trim();
         buf = buf.slice(idx + 1);
-        if (line) console.log('[아두이노]', line);
+        if (!line) continue;
+        console.log('[아두이노]', line);
+        // 외출 감지 → 멘트 자동 재생 (우산 작동 여부와 무관)
+        if (line === 'FACE') {
+          if (currentSummary) speak(currentSummary);
+        }
       }
     }
   } catch (e) {

@@ -33,6 +33,10 @@ bool rainExpected = false;
 unsigned long lastWeatherUpdate = 0;
 const unsigned long WEATHER_TIMEOUT = 6UL * 60UL * 60UL * 1000UL; // 6시간
 
+// 얼굴 감지 → 앱 TTS 트리거 쿨다운
+unsigned long lastFaceBT = 0;
+const unsigned long FACE_TTS_COOLDOWN = 15000; // 15초
+
 String btBuf = "";
 
 // ── 함수 선언 ──
@@ -89,7 +93,14 @@ void loop() {
   Serial.print("  [얼굴] "); Serial.print(faceDetected ? "감지O" : "감지X");
   Serial.print("  [크기] "); Serial.println(faceArea);
 
-  // 4) 비 + 우산 + 외출(얼굴) 동시 감지 → 우산 내보내기
+  // 4) 얼굴 감지 → 앱이 TTS 멘트 재생하도록 신호 (쿨다운으로 스팸 방지)
+  if (faceDetected && (millis() - lastFaceBT) > FACE_TTS_COOLDOWN) {
+    btSerial.println("FACE");
+    lastFaceBT = millis();
+    Serial.println(">> [BT 송신] FACE — 앱이 멘트 재생");
+  }
+
+  // 5) 비 + 우산 + 외출(얼굴) 동시 감지 → 우산 내보내기
   if (rainExpected && irDetected && faceDetected) {
     Serial.println(">> ★ 비 + 우산 + 외출 감지! 우산 내보냅니다.");
     btSerial.println("EVENT umbrella_dispensed");
