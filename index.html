@@ -1236,15 +1236,60 @@ if ('serviceWorker' in navigator) {
   });
 }
 
-window.addEventListener('load', () => {
+// 마지막 위치 캐시 (localStorage)
+const LAST_LOC_KEY = 'weather-app-last-location';
+function saveLastLocation(lat, lon, name) {
+  try {
+    localStorage.setItem(LAST_LOC_KEY, JSON.stringify({ lat, lon, name, t: Date.now() }));
+  } catch (e) {}
+}
+function getLastLocation() {
+  try {
+    const v = localStorage.getItem(LAST_LOC_KEY);
+    if (!v) return null;
+    return JSON.parse(v);
+  } catch (e) { return null; }
+}
+
+function autoLocate() {
+  // 1) 캐시가 있으면 즉시 표시 — 사용자가 바로 결과를 봄
+  const cached = getLastLocation();
+  if (cached && cached.lat && cached.lon) {
+    loadByCoords(cached.lat, cached.lon, cached.name);
+  }
+  // 2) 백그라운드에서 새 위치 요청 — 성공 시 갱신
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition(
-      pos => loadByCoords(pos.coords.latitude, pos.coords.longitude, null),
-      () => load('서울'),
-      { timeout: 5000 }
+      pos => {
+        const { latitude, longitude } = pos.coords;
+        // 캐시 좌표와 거의 같으면 굳이 다시 안 그림
+        if (cached && Math.abs(cached.lat - latitude) < 0.005 && Math.abs(cached.lon - longitude) < 0.005) return;
+        loadByCoords(latitude, longitude, null);
+      },
+      err => {
+        // 캐시 폴백 — 캐시도 없으면 마지막 수단으로 서울
+        if (!cached) {
+          console.warn('GPS 실패, 서울로 폴백:', err && err.message);
+          load('서울');
+        }
+      },
+      { timeout: 15000, enableHighAccuracy: true, maximumAge: 60000 }
     );
-  } else { load('서울'); }
-});
+  } else if (!cached) {
+    load('서울');
+  }
+}
+
+// loadByCoords 성공 시 캐시 갱신을 위한 후킹
+const _origLoadByCoords = loadByCoords;
+loadByCoords = async function(lat, lon, placeName) {
+  const r = await _origLoadByCoords(lat, lon, placeName);
+  // currentPlaceName이 갱신된 후 저장
+  if (currentPlaceName) saveLastLocation(lat, lon, currentPlaceName);
+  return r;
+};
+
+window.addEventListener('load', autoLocate);
 </script>
 </body>
 </html>

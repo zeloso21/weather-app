@@ -1,13 +1,16 @@
 #include "HUSKYLENS.h"
 #include "Wire.h"
-#include <SoftwareSerial.h>
+
+// Arduino Mega 2560 기준 핀 매핑
+//   I2C  : SDA=20, SCL=21 (HUSKYLENS — Wire가 자동 사용)
+//   HC-05: TX1=18 → HC-05 RXD (전압분주 1kΩ+2kΩ로 5V→3.3V 강하 필수)
+//          RX1=19 ← HC-05 TXD (직결 OK)
+// Uno에서 옮긴 경우 차이점:
+//   - SoftwareSerial 제거 → 하드웨어 Serial1 사용 (더 안정적)
+//   - HUSKYLENS 배선: A4/A5 → D20/D21
 
 HUSKYLENS huskylens;
-
-// HC-05 블루투스 (Arduino Uno 기준 SoftwareSerial)
-//   Arduino 10 ← HC-05 TX
-//   Arduino 11 → HC-05 RX (전압분주 1k/2k로 5V→3.3V 강하 권장)
-SoftwareSerial btSerial(10, 11); // RX, TX
+#define btSerial Serial1
 
 // ── 핀 설정 ──
 const int IR_PIN      = 2;
