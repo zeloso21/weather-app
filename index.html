@@ -633,32 +633,77 @@ function buildSummary(todayLo, todayHi, rainProb, events) {
 
   let ePart = '', eSpeech = '';
   if (events && events.length) {
-    const allDay = events.filter(e => !e.start.dateTime);
-    const timed = events.filter(e => e.start.dateTime);
-    const segs = [], segsSpeech = [];
-    if (timed.length) {
-      const list = timed.map(e => {
+    // 장소+시간 일정: 그 장소의 그 시간 날씨로 메시지 구성
+    const located = [];
+    const otherTimed = [];
+    const allDay = [];
+    for (const ev of events) {
+      if (!ev.start.dateTime) { allDay.push(ev); continue; }
+      if (ev._weather) located.push(ev);
+      else otherTimed.push(ev);
+    }
+
+    const locatedDisplay = [], locatedSpeech = [];
+    for (const ev of located) {
+      const dt = new Date(ev.start.dateTime);
+      const hh = dt.getHours(), mm = dt.getMinutes();
+      const tstr = mm === 0 ? `${hh}시` : `${hh}시 ${String(mm).padStart(2,'0')}분`;
+      const place = ev._weather.placeName || ev.location;
+      const code = ev._weather.code;
+      const rp = ev._weather.rainProb || 0;
+      let desc, descSpeech, tip, tipSpeech;
+      if (SNOW_CODES.has(code)) {
+        desc = '눈이 와요 ❄️'; descSpeech = '눈이 와요.';
+        tip = '따뜻하게 입고 가세요!'; tipSpeech = '따뜻하게 입고 가세요.';
+      } else if (RAIN_CODES.has(code) || rp >= 70) {
+        desc = '비가 와요 ☔'; descSpeech = '비가 와요.';
+        tip = '우산을 꼭 챙기세요!'; tipSpeech = '우산을 꼭 챙기세요.';
+      } else if (rp >= 40) {
+        desc = `흐려요 ☁️ (강수확률 ${rp}%)`; descSpeech = `흐려요. 강수 확률은 ${rp} 퍼센트예요.`;
+        tip = '우산 챙겨가면 좋아요.'; tipSpeech = '우산 챙겨가면 좋아요.';
+      } else {
+        desc = '날씨가 좋아요 ☀️'; descSpeech = '날씨가 좋아요.';
+        tip = '잘 다녀오세요!'; tipSpeech = '잘 다녀오세요.';
+      }
+      locatedDisplay.push(`${tstr}에 ${place}에서 일정이 있으시군요. ${desc} ${tip}`);
+      locatedSpeech.push(`${tstr}에 ${place}에서 일정이 있으시군요. ${descSpeech} ${tipSpeech}`);
+    }
+
+    const otherSegs = [], otherSegsSpeech = [];
+    if (otherTimed.length) {
+      const list = otherTimed.map(e => {
         const dt = new Date(e.start.dateTime);
-        const h = dt.getHours(), m = dt.getMinutes();
-        const tstr = m === 0 ? `${h}시` : `${h}시 ${String(m).padStart(2,'0')}분`;
+        const hh = dt.getHours(), mm = dt.getMinutes();
+        const tstr = mm === 0 ? `${hh}시` : `${hh}시 ${String(mm).padStart(2,'0')}분`;
         return { tstr, name: e.summary || '(제목 없음)' };
       });
       if (list.length === 1) {
-        segs.push(`${list[0].tstr}에 '${list[0].name}' 일정`);
-        segsSpeech.push(`${list[0].tstr}에 ${list[0].name} 일정`);
+        otherSegs.push(`${list[0].tstr}에 '${list[0].name}' 일정`);
+        otherSegsSpeech.push(`${list[0].tstr}에 ${list[0].name} 일정`);
       } else {
         const joined = list.map(x => `${x.tstr} ${x.name}`).join(', ');
-        segs.push(joined + ' 일정');
-        segsSpeech.push(joined + ' 일정');
+        otherSegs.push(joined + ' 일정');
+        otherSegsSpeech.push(joined + ' 일정');
       }
     }
     if (allDay.length) {
       const names = allDay.map(e => e.summary || '(제목 없음)').join(', ');
-      segs.push(`종일 '${names}'`);
-      segsSpeech.push(`종일 ${names}`);
+      otherSegs.push(`종일 '${names}'`);
+      otherSegsSpeech.push(`종일 ${names}`);
     }
-    ePart = ` 그리고 오늘 ${segs.join(', ')}이 있네요. 잘 다녀오세요! 🙌`;
-    eSpeech = ` 그리고 오늘 ${segsSpeech.join(', ')}이 있네요. 잘 다녀오세요.`;
+
+    const parts = [];
+    const partsSpeech = [];
+    if (locatedDisplay.length) {
+      parts.push(locatedDisplay.join(' '));
+      partsSpeech.push(locatedSpeech.join(' '));
+    }
+    if (otherSegs.length) {
+      parts.push(`그리고 오늘 ${otherSegs.join(', ')}이 있네요. 잘 다녀오세요! 🙌`);
+      partsSpeech.push(`그리고 오늘 ${otherSegsSpeech.join(', ')}이 있네요. 잘 다녀오세요.`);
+    }
+    ePart = parts.length ? ' ' + parts.join(' ') : '';
+    eSpeech = partsSpeech.length ? ' ' + partsSpeech.join(' ') : '';
   }
 
   return { display: wPart + ePart + ' ' + closing, speech: wSpeech + eSpeech + ' ' + closingSpeech };
@@ -718,6 +763,68 @@ function speakSummary() {
   if (currentSummary) speak(currentSummary);
 }
 
+// 일정 장소별 날씨 캐시 (장소|날짜 → {placeName, code, rainProb, temp})
+const eventWeatherCache = new Map();
+
+async function geocodeEventLocation(loc) {
+  // 1) Open-Meteo 지오코딩
+  try {
+    const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(loc)}&count=1&language=ko`).then(x => x.json());
+    if (g.results && g.results.length) {
+      return { lat: g.results[0].latitude, lon: g.results[0].longitude, name: g.results[0].name };
+    }
+  } catch (e) {}
+  // 2) Nominatim 폴백 (한국 동/지명에 강함)
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1&accept-language=ko`).then(x => x.json());
+    if (r && r.length) {
+      const a = r[0];
+      const nameParts = (a.display_name || '').split(',').map(s => s.trim());
+      return { lat: parseFloat(a.lat), lon: parseFloat(a.lon), name: nameParts[0] || loc };
+    }
+  } catch (e) {}
+  return null;
+}
+
+async function getEventWeather(location, eventTime) {
+  if (!location) return null;
+  const dateKey = eventTime.toISOString().slice(0, 10);
+  const cacheKey = `${location}|${dateKey}`;
+  if (eventWeatherCache.has(cacheKey)) return eventWeatherCache.get(cacheKey);
+  const geo = await geocodeEventLocation(location);
+  if (!geo) { eventWeatherCache.set(cacheKey, null); return null; }
+  try {
+    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&hourly=temperature_2m,weather_code,precipitation_probability&timezone=auto&forecast_days=3`).then(x => x.json());
+    if (!w.hourly || !w.hourly.time) { eventWeatherCache.set(cacheKey, null); return null; }
+    const target = eventTime.getTime();
+    let bestIdx = 0, bestDiff = Infinity;
+    for (let i = 0; i < w.hourly.time.length; i++) {
+      const diff = Math.abs(new Date(w.hourly.time[i]).getTime() - target);
+      if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+    }
+    const result = {
+      placeName: geo.name,
+      code: w.hourly.weather_code[bestIdx],
+      temp: w.hourly.temperature_2m[bestIdx],
+      rainProb: w.hourly.precipitation_probability[bestIdx] || 0,
+    };
+    eventWeatherCache.set(cacheKey, result);
+    return result;
+  } catch (e) {
+    eventWeatherCache.set(cacheKey, null);
+    return null;
+  }
+}
+
+async function enrichEventsWithWeather(events) {
+  await Promise.all(events.map(async ev => {
+    if (!ev.start.dateTime) return;
+    if (!ev.location) return;
+    const t = new Date(ev.start.dateTime);
+    ev._weather = await getEventWeather(ev.location, t);
+  }));
+}
+
 let googleToken = null;
 function googleAuth() {
   if (GOOGLE_CLIENT_ID.startsWith('YOUR_CLIENT_ID')) {
@@ -756,6 +863,8 @@ async function loadEvents() {
       return ev.start.date === todayStr;
     });
     rebuildSummary();
+    // 일정 장소별 날씨 비동기 enrich 후 멘트 재구성
+    enrichEventsWithWeather(todayEventsCache).then(rebuildSummary);
 
     if (!data.items || !data.items.length) { el.innerHTML = '<div style="padding:10px;opacity:0.7;font-size:13px">앞으로 7일간 일정 없음</div>'; return; }
     let html = '';
