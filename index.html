@@ -46,20 +46,71 @@
   /* 흐린 날 배경 */
   body.cloudy {
     background:
-      radial-gradient(ellipse at top, #b5c2d1 0%, transparent 70%),
-      linear-gradient(180deg, #7a8a9e 0%, #95a5b8 50%, #b8c6d6 100%);
+      radial-gradient(ellipse at top, #6c798b 0%, transparent 65%),
+      linear-gradient(180deg, #4f5b6b 0%, #62707f 50%, #7c8b9c 100%);
   }
   body.cloudy.night {
     background:
-      radial-gradient(ellipse at top, #2a3340 0%, transparent 70%),
-      linear-gradient(180deg, #1c2530 0%, #2a3544 50%, #0e1620 100%);
+      radial-gradient(ellipse at top, #1a222e 0%, transparent 70%),
+      linear-gradient(180deg, #11171f 0%, #1d2530 50%, #07090d 100%);
   }
   body.cloudy .card {
-    background: rgba(40, 55, 75, 0.35);
+    background: rgba(35, 48, 65, 0.45);
     border: 1px solid rgba(255,255,255,0.15);
   }
-  body.cloudy.night .card { background: rgba(40, 55, 75, 0.5); }
-  body.cloudy .tabbar { background: rgba(40, 55, 75, 0.8); }
+  body.cloudy.night .card { background: rgba(30, 40, 55, 0.55); }
+  body.cloudy .tabbar { background: rgba(30, 42, 58, 0.85); }
+
+  /* 떠다니는 구름 */
+  body.cloudy #clouds { opacity: 1; }
+  body.thunder #clouds { opacity: 1; }
+  .cloud {
+    position: absolute;
+    background: radial-gradient(ellipse at center, rgba(255,255,255,0.45) 0%, rgba(255,255,255,0.15) 50%, transparent 75%);
+    border-radius: 50%;
+    filter: blur(8px);
+    animation: drift linear infinite;
+  }
+  body.night .cloud {
+    background: radial-gradient(ellipse at center, rgba(200,210,225,0.18) 0%, rgba(180,190,210,0.08) 50%, transparent 75%);
+  }
+  @keyframes drift {
+    from { transform: translateX(-300px); }
+    to { transform: translateX(110vw); }
+  }
+
+  /* 번개 (천둥) */
+  body.thunder {
+    background:
+      radial-gradient(ellipse at top, #2a2a3a 0%, transparent 60%),
+      linear-gradient(180deg, #1a1a28 0%, #232333 50%, #0a0a14 100%);
+  }
+  body.thunder.night {
+    background:
+      radial-gradient(ellipse at top, #15151f 0%, transparent 60%),
+      linear-gradient(180deg, #0a0a14 0%, #14141e 50%, #050508 100%);
+  }
+  body.thunder .card { background: rgba(30, 30, 50, 0.55); }
+  body.thunder .tabbar { background: rgba(20, 20, 35, 0.9); }
+  #lightning {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; z-index: 5;
+    background: #fff;
+    opacity: 0;
+    mix-blend-mode: screen;
+  }
+  body.thunder #lightning { animation: lightning 9s infinite; }
+  @keyframes lightning {
+    0%, 100% { opacity: 0; }
+    25% { opacity: 0; }
+    25.3% { opacity: 0.85; }
+    25.7% { opacity: 0.1; }
+    26% { opacity: 0.65; }
+    26.4% { opacity: 0; }
+    62% { opacity: 0; }
+    62.3% { opacity: 0.7; }
+    62.6% { opacity: 0; }
+  }
 
   /* 비 오는 날 배경 */
   body.rainy {
@@ -93,7 +144,7 @@
   body.snowy.night .card { background: rgba(40, 55, 80, 0.45); }
   body.snowy .tabbar { background: rgba(50, 70, 100, 0.75); }
 
-  #stars, #rain, #snow {
+  #stars, #rain, #snow, #clouds {
     position: fixed; top: 0; left: 0; right: 0; bottom: 0;
     pointer-events: none; z-index: 0;
     transition: opacity 1.2s ease;
@@ -281,6 +332,8 @@
 <div id="stars"></div>
 <div id="rain"></div>
 <div id="snow"></div>
+<div id="clouds"></div>
+<div id="lightning"></div>
 
 <div class="app">
   <div class="top-bar">
@@ -328,6 +381,7 @@ let currentWeatherCode = null;
 let currentRainProb = 0;
 const RAIN_CODES = new Set([51,53,55,61,63,65,80,81,82,95,96,99]);
 const SNOW_CODES = new Set([71,73,75,77,85,86]);
+const THUNDER_CODES = new Set([95,96,99]);
 
 function updateTheme() {
   const h = new Date().getHours();
@@ -335,24 +389,30 @@ function updateTheme() {
   document.body.classList.toggle('night', isNight);
   document.body.classList.toggle('day', !isNight);
 
+  // 천둥/번개 → thunder + rainy (천둥은 보통 비 동반)
+  const isThunder = currentWeatherCode != null && THUNDER_CODES.has(currentWeatherCode);
   // 눈은 weather_code 기준, 그 외는 강수확률(현재 시간) 기준으로 분기
   // 0~40% 맑음 / 40~70% 흐림 / 70~100% 비 내림
-  const isSnow = currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
+  const isSnow = !isThunder && currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
   let isRain = false, isCloudy = false;
-  if (!isSnow) {
+  if (!isSnow && !isThunder) {
     if (currentRainProb >= 70) isRain = true;
     else if (currentRainProb >= 40) isCloudy = true;
+  } else if (isThunder) {
+    isRain = true; // 천둥치면 비도 같이
   }
   document.body.classList.toggle('rainy', isRain);
   document.body.classList.toggle('snowy', isSnow);
   document.body.classList.toggle('cloudy', isCloudy);
+  document.body.classList.toggle('thunder', isThunder);
 
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
     let color = isNight ? '#0d0d2e' : '#4ea3dc';
-    if (isSnow) color = isNight ? '#2a3548' : '#a8bccf';
+    if (isThunder) color = isNight ? '#0a0a14' : '#1a1a28';
+    else if (isSnow) color = isNight ? '#2a3548' : '#a8bccf';
     else if (isRain) color = isNight ? '#0f1a2a' : '#34495e';
-    else if (isCloudy) color = isNight ? '#2a3544' : '#95a5b8';
+    else if (isCloudy) color = isNight ? '#1d2530' : '#62707f';
     meta.setAttribute('content', color);
   }
 }
@@ -392,6 +452,24 @@ function makeRain() {
   el.innerHTML = html;
 }
 makeRain();
+
+// 구름 생성
+function makeClouds() {
+  const el = document.getElementById('clouds');
+  const count = 7;
+  let html = '';
+  for (let i = 0; i < count; i++) {
+    const w = 220 + Math.random() * 280;
+    const hPx = 70 + Math.random() * 90;
+    const y = Math.random() * 70;
+    const dur = 50 + Math.random() * 60;
+    const delay = -Math.random() * dur;
+    const op = 0.4 + Math.random() * 0.5;
+    html += `<div class="cloud" style="top:${y}%;width:${w}px;height:${hPx}px;animation-duration:${dur}s;animation-delay:${delay}s;opacity:${op}"></div>`;
+  }
+  el.innerHTML = html;
+}
+makeClouds();
 
 // 눈송이 생성
 function makeSnow() {
@@ -668,8 +746,10 @@ function buildSummary(todayLo, todayHi, rainProb, events) {
       const code = ev._weather.code;
       const rp = ev._weather.rainProb || 0;
       let desc, descSpeech, tip, tipSpeech;
-      const tempC = Math.round(ev._weather.temp);
-      if (SNOW_CODES.has(code)) {
+      if (THUNDER_CODES.has(code)) {
+        desc = '천둥번개가 쳐요 ⛈️'; descSpeech = '천둥번개가 쳐요.';
+        tip = '외출이 위험할 수 있어요. 조심하세요!'; tipSpeech = '외출이 위험할 수 있어요. 조심하세요.';
+      } else if (SNOW_CODES.has(code)) {
         desc = '눈이 와요 ❄️'; descSpeech = '눈이 와요.';
         tip = '따뜻하게 입고 가세요!'; tipSpeech = '따뜻하게 입고 가세요.';
       } else if (RAIN_CODES.has(code) || rp >= 70) {
@@ -682,8 +762,17 @@ function buildSummary(todayLo, todayHi, rainProb, events) {
         desc = '날씨가 좋아요 ☀️'; descSpeech = '날씨가 좋아요.';
         tip = '잘 다녀오세요!'; tipSpeech = '잘 다녀오세요.';
       }
-      const stat = `(기온 ${tempC}°, 강수확률 ${rp}%)`;
-      const statSpeech = `기온은 ${tempC}도, 강수 확률은 ${rp} 퍼센트예요.`;
+      // 일별 최저/최고(그 위치의 그 날짜) + 그 시각 강수확률
+      const lo = ev._weather.lo != null ? Math.round(ev._weather.lo) : null;
+      const hi = ev._weather.hi != null ? Math.round(ev._weather.hi) : null;
+      let stat, statSpeech;
+      if (lo != null && hi != null) {
+        stat = `(최저 ${lo}° · 최고 ${hi}° · 강수확률 ${rp}%)`;
+        statSpeech = `최저 기온은 ${lo}도, 최고 기온은 ${hi}도이고, 강수 확률은 ${rp} 퍼센트예요.`;
+      } else {
+        stat = `(강수확률 ${rp}%)`;
+        statSpeech = `강수 확률은 ${rp} 퍼센트예요.`;
+      }
       const intro = ev._weather.isCurrentLocation
         ? `${tstr}에 일정이 있으시군요.`
         : `${tstr}에 ${place}에서 일정이 있으시군요.`;
@@ -839,7 +928,7 @@ async function getEventWeather(location, eventTime) {
   const geo = await geocodeEventLocation(location);
   if (!geo) { eventWeatherCache.set(cacheKey, null); return null; }
   try {
-    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&hourly=temperature_2m,weather_code,precipitation_probability&timezone=auto&forecast_days=3`).then(x => x.json());
+    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=3`).then(x => x.json());
     if (!w.hourly || !w.hourly.time) { eventWeatherCache.set(cacheKey, null); return null; }
     const target = eventTime.getTime();
     let bestIdx = 0, bestDiff = Infinity;
@@ -847,11 +936,25 @@ async function getEventWeather(location, eventTime) {
       const diff = Math.abs(new Date(w.hourly.time[i]).getTime() - target);
       if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
     }
+    // 이벤트 날짜에 맞는 일별 최저/최고
+    let lo = null, hi = null;
+    if (w.daily && w.daily.time) {
+      const yyyy = eventTime.getFullYear(), mm = eventTime.getMonth(), dd = eventTime.getDate();
+      for (let i = 0; i < w.daily.time.length; i++) {
+        const dt = new Date(w.daily.time[i]);
+        if (dt.getFullYear() === yyyy && dt.getMonth() === mm && dt.getDate() === dd) {
+          lo = w.daily.temperature_2m_min[i];
+          hi = w.daily.temperature_2m_max[i];
+          break;
+        }
+      }
+    }
     const result = {
       placeName: geo.name,
       code: w.hourly.weather_code[bestIdx],
       temp: w.hourly.temperature_2m[bestIdx],
       rainProb: w.hourly.precipitation_probability[bestIdx] || 0,
+      lo, hi,
     };
     eventWeatherCache.set(cacheKey, result);
     return result;
@@ -870,11 +973,26 @@ function lookupCurrentForecastAt(eventTime) {
     const diff = Math.abs(new Date(h.time[i]).getTime() - target);
     if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
   }
+  // 이벤트 날짜에 맞는 일별 최저/최고 (현재 위치 기준)
+  let lo = null, hi = null;
+  if (currentForecast.daily && currentForecast.daily.time) {
+    const yyyy = eventTime.getFullYear(), mm = eventTime.getMonth(), dd = eventTime.getDate();
+    const dArr = currentForecast.daily;
+    for (let i = 0; i < dArr.time.length; i++) {
+      const dt = new Date(dArr.time[i]);
+      if (dt.getFullYear() === yyyy && dt.getMonth() === mm && dt.getDate() === dd) {
+        lo = dArr.temperature_2m_min[i];
+        hi = dArr.temperature_2m_max[i];
+        break;
+      }
+    }
+  }
   return {
     placeName: currentPlaceName || '현재 위치',
     code: h.weather_code[bestIdx],
     temp: h.temperature_2m[bestIdx],
     rainProb: h.precipitation_probability[bestIdx] || 0,
+    lo, hi,
     isCurrentLocation: true,
   };
 }
