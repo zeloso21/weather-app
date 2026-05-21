@@ -209,19 +209,80 @@
     padding: 12px 16px; border: none; border-radius: 12px;
     background: rgba(255,255,255,0.2); color: #fff; cursor: pointer;
   }
-  .hero { text-align: center; padding: 8px 0 24px; }
-  .hero .city {
+  .hero { text-align: center; padding: 8px 0 16px; }
+  .hero-head {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 4px 12px;
+  }
+  .hero-head .loc {
     display: inline-flex; align-items: center; gap: 6px;
-    font-size: 32px; font-weight: 400; letter-spacing: -0.5px;
+    font-size: 22px; font-weight: 500;
   }
-  .hero .city .pin { font-size: 16px; opacity: 0.7; }
-  .hero .temp {
-    font-size: 96px; font-weight: 200; line-height: 1.1;
-    letter-spacing: -4px; margin: 4px 0;
+  .hero-head .loc .pin { font-size: 14px; opacity: 0.7; }
+  .hero-head .now-label {
+    font-size: 13px; opacity: 0.7; padding: 4px 12px;
+    background: rgba(255,255,255,0.12); border-radius: 20px;
   }
-  .hero .temp sup { font-size: 0.5em; vertical-align: super; font-weight: 300; }
-  .hero .desc { font-size: 20px; font-weight: 400; opacity: 0.95; }
-  .hero .hilo { font-size: 18px; opacity: 0.85; margin-top: 4px; font-weight: 400; }
+  .hero-main {
+    display: grid; grid-template-columns: auto 1fr auto;
+    align-items: center; gap: 16px; padding: 8px 8px 4px;
+  }
+  .hero-main .h-icon { font-size: 72px; line-height: 1; }
+  .hero-main .h-temp {
+    font-size: 80px; font-weight: 200; line-height: 1;
+    letter-spacing: -3px; text-align: left;
+  }
+  .hero-main .h-temp sup { font-size: 0.4em; vertical-align: super; font-weight: 300; }
+  .hero-main .h-prob {
+    text-align: right; line-height: 1.2;
+  }
+  .hero-main .h-prob .label { font-size: 12px; opacity: 0.75; }
+  .hero-main .h-prob .val {
+    font-size: 26px; font-weight: 600; color: #ffd866;
+  }
+  .hero .desc {
+    text-align: center; font-size: 16px; opacity: 0.9;
+    margin-top: 4px;
+  }
+
+  /* 일정 리스트 */
+  .events-card .card-title { justify-content: space-between; }
+  .events-card .count {
+    font-size: 11px; padding: 3px 9px; border-radius: 20px;
+    background: rgba(255,255,255,0.18); text-transform: none; letter-spacing: 0;
+    opacity: 0.95; font-weight: 600;
+  }
+  .ev-item {
+    display: grid; grid-template-columns: 60px 1fr auto;
+    align-items: center; gap: 12px;
+    padding: 12px 4px;
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+  }
+  .ev-item:last-child { border-bottom: none; }
+  .ev-item.upcoming { background: rgba(255,180,100,0.08); border-radius: 8px; padding-left: 8px; padding-right: 8px; }
+  .ev-time {
+    font-size: 16px; font-weight: 600; letter-spacing: -0.3px;
+  }
+  .ev-info .name { font-size: 15px; font-weight: 500; margin-bottom: 2px; }
+  .ev-info .sub { font-size: 12px; opacity: 0.75; display: flex; align-items: center; gap: 4px; }
+  .ev-info .sub .dot { opacity: 0.5; }
+  .ev-prob {
+    font-size: 15px; font-weight: 600;
+    text-align: right; min-width: 50px;
+  }
+  .ev-prob.rainy { color: #ffd866; }
+  .ev-prob.cloudy { color: #a8c5e0; }
+  .ev-prob.clear { color: #6dd57b; }
+  .ev-prob.snowy { color: #cfe7ff; }
+  .ev-prob.thunder { color: #ff8e8e; }
+  .events-empty {
+    text-align: center; padding: 24px 12px; opacity: 0.7; font-size: 13px;
+  }
+  .cal-mini-btn {
+    background: rgba(255,255,255,0.18); border: none; color: #fff;
+    padding: 6px 12px; border-radius: 8px; font-size: 11px; cursor: pointer;
+    text-transform: none; letter-spacing: 0; opacity: 1;
+  }
 
   .card {
     background: rgba(60, 60, 110, 0.4);
@@ -417,7 +478,7 @@ function updateTheme() {
   }
 }
 updateTheme();
-setInterval(() => { updateTheme(); rebuildSummary(); }, 60000);
+setInterval(() => { updateTheme(); rebuildSummary(); renderTodayEvents(); }, 60000);
 
 // 별 생성
 function makeStars() {
@@ -628,20 +689,32 @@ function render(place, w) {
 
   const rainProbToday = d.precipitation_probability_max[0] || 0;
   const rainSumToday = d.precipitation_sum[0] || 0;
-  document.getElementById('rain-banner').innerHTML = `
-    <div class="rain-banner">
-      💧 <span class="rb-label">오늘 강수확률</span>
-      <span class="rb-value">${rainProbToday}%</span>
-      ${rainSumToday > 0 ? `<span class="rb-label">· ${rainSumToday}mm</span>` : ''}
-    </div>
-  `;
+  if (rainProbToday >= 50) {
+    document.getElementById('rain-banner').innerHTML = `
+      <div class="rain-banner" style="background:linear-gradient(135deg,rgba(255,180,90,0.35),rgba(255,210,100,0.2));border:1px solid rgba(255,220,150,0.35)">
+        🌂 <b>우산을 챙기세요!</b>
+        <span class="rb-label">오늘 강수확률 ${rainProbToday}%${rainSumToday > 0 ? ` · ${rainSumToday}mm 예상` : ''}</span>
+      </div>
+    `;
+  } else {
+    document.getElementById('rain-banner').innerHTML = '';
+  }
 
   document.getElementById('content').innerHTML = `
     <div class="hero">
-      <div class="city"><span class="pin">📍</span>${place}</div>
-      <div class="temp">${Math.round(c.temperature_2m)}<sup>°</sup></div>
-      <div class="desc">${desc}</div>
-      <div class="hilo">최고:${todayHi}°  최저:${todayLo}°</div>
+      <div class="hero-head">
+        <div class="loc"><span class="pin">📍</span>${place}</div>
+        <div class="now-label">지금</div>
+      </div>
+      <div class="hero-main">
+        <div class="h-icon">${icon}</div>
+        <div class="h-temp">${Math.round(c.temperature_2m)}<sup>°</sup></div>
+        <div class="h-prob">
+          <div class="label">강수확률</div>
+          <div class="val">${rainProbToday}%</div>
+        </div>
+      </div>
+      <div class="desc">${desc} · 최고 ${todayHi}° · 최저 ${todayLo}°</div>
     </div>
 
     <div class="card">
@@ -651,20 +724,12 @@ function render(place, w) {
       </div>
     </div>
 
-    <div class="card">
-      <div class="card-title">⏱ 시간별 일기예보</div>
-      <div class="hourly">${hourlyHtml}</div>
-    </div>
-
-    <div class="card">
-      <div class="card-title">📅 10일간의 일기예보</div>
-      <div class="daily">${dailyHtml}</div>
-    </div>
-
-    <div class="card">
-      <div class="card-title" style="justify-content:space-between">
-        <span>📆 구글 캘린더</span>
-        <button id="switch-acc-btn" onclick="switchGoogleAccount()" style="display:none;background:rgba(255,255,255,0.18);border:none;color:#fff;padding:5px 10px;border-radius:8px;font-size:11px;cursor:pointer;text-transform:none;letter-spacing:0;opacity:1">🔄 계정 변경</button>
+    <div class="card events-card">
+      <div class="card-title">
+        <span>📅 나의 일정 <span id="ev-count" class="count" style="display:none">0개</span></span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <button id="switch-acc-btn" onclick="switchGoogleAccount()" class="cal-mini-btn" style="display:none">🔄 계정</button>
+        </div>
       </div>
       <div id="cal-result">
         <button class="cal-btn" onclick="googleAuth()">구글 캘린더 연결</button>
@@ -1089,25 +1154,105 @@ async function loadEvents() {
       }
       return ev.start.date === todayStr;
     });
-    rebuildSummary();
-    // 일정 장소별 날씨 비동기 enrich 후 멘트 재구성
-    enrichEventsWithWeather(todayEventsCache).then(rebuildSummary);
 
     const switchBtn = document.getElementById('switch-acc-btn');
     if (switchBtn) switchBtn.style.display = 'inline-block';
 
-    if (!data.items || !data.items.length) { el.innerHTML = '<div style="padding:10px;opacity:0.7;font-size:13px">앞으로 7일간 일정 없음</div>'; return; }
-    let html = '';
-    for (const ev of data.items) {
-      const s = ev.start.dateTime || ev.start.date;
-      const dt = new Date(s);
-      const timeStr = ev.start.dateTime
-        ? `${dt.getMonth()+1}/${dt.getDate()} ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`
-        : `${dt.getMonth()+1}/${dt.getDate()} 종일`;
-      html += `<div class="event"><span>${ev.summary || '(제목 없음)'}</span><span class="e-time">${timeStr}</span></div>`;
-    }
-    el.innerHTML = html;
+    renderTodayEvents();
+    rebuildSummary();
+    // 일정 장소별 날씨 비동기 enrich 후 멘트/리스트 재구성
+    enrichEventsWithWeather(todayEventsCache).then(() => {
+      renderTodayEvents();
+      rebuildSummary();
+    });
   } catch { el.innerHTML = '<div class="error">일정 가져오기 실패</div>'; }
+}
+
+function renderTodayEvents() {
+  const el = document.getElementById('cal-result');
+  if (!el) return;
+  const countEl = document.getElementById('ev-count');
+  if (!googleToken) {
+    el.innerHTML = '<button class="cal-btn" onclick="googleAuth()">구글 캘린더 연결</button>';
+    if (countEl) countEl.style.display = 'none';
+    return;
+  }
+
+  const events = todayEventsCache || [];
+  if (countEl) {
+    countEl.style.display = events.length ? 'inline-block' : 'none';
+    countEl.textContent = `${events.length}개`;
+  }
+  if (!events.length) {
+    el.innerHTML = '<div class="events-empty">오늘 일정이 없어요</div>';
+    return;
+  }
+
+  // 시작 시각 순 정렬
+  const sorted = [...events].sort((a, b) => {
+    const ta = a.start.dateTime ? new Date(a.start.dateTime).getTime() : 0;
+    const tb = b.start.dateTime ? new Date(b.start.dateTime).getTime() : 0;
+    return ta - tb;
+  });
+
+  const now = Date.now();
+  let html = '';
+  for (const ev of sorted) {
+    let timeStr, isUpcoming = false;
+    if (ev.start.dateTime) {
+      const dt = new Date(ev.start.dateTime);
+      timeStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      const start = dt.getTime();
+      const end = (ev.end && ev.end.dateTime) ? new Date(ev.end.dateTime).getTime() : start + 60*60*1000;
+      isUpcoming = now >= (start - 30*60*1000) && now <= end;
+    } else {
+      timeStr = '종일';
+    }
+
+    const name = ev.summary || '(제목 없음)';
+    const place = ev.location || '';
+    let weatherText = '', probClass = 'clear', emoji = '';
+    let rp = null;
+    if (ev._weather) {
+      rp = ev._weather.rainProb || 0;
+      const code = ev._weather.code;
+      const w = wmo(code);
+      emoji = w[0];
+      if (THUNDER_CODES.has(code)) { weatherText = '천둥번개'; probClass = 'thunder'; }
+      else if (SNOW_CODES.has(code)) { weatherText = '눈'; probClass = 'snowy'; }
+      else if (RAIN_CODES.has(code) || rp >= 70) {
+        weatherText = rp >= 85 ? '강한 비' : (rp >= 50 ? '비' : '약한 비');
+        probClass = 'rainy';
+      } else if (rp >= 40) {
+        weatherText = '흐림'; probClass = 'cloudy';
+      } else {
+        weatherText = '맑음'; probClass = 'clear';
+      }
+    }
+
+    const subBits = [];
+    if (place) subBits.push(place);
+    if (weatherText) subBits.push(weatherText);
+    const subText = subBits.join(' · ') || '&nbsp;';
+
+    const probHtml = (rp != null)
+      ? `<div class="ev-prob ${probClass}">${emoji} ${rp}%</div>`
+      : `<div class="ev-prob" style="opacity:0.5">...</div>`;
+
+    html += `<div class="ev-item ${isUpcoming ? 'upcoming' : ''}">
+      <div class="ev-time">${timeStr}</div>
+      <div class="ev-info">
+        <div class="name">${escapeHtml(name)}</div>
+        <div class="sub">${subText}</div>
+      </div>
+      ${probHtml}
+    </div>`;
+  }
+  el.innerHTML = html;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
 // ===== 아두이노 (HC-05) Web Serial 연동 =====
