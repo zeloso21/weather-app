@@ -1310,6 +1310,18 @@ function isRainExpectedToday() {
   return false;
 }
 
+async function openArduinoPort(port) {
+  await port.open({ baudRate: 9600 });
+  arduinoPort = port;
+  arduinoWriter = port.writable.getWriter();
+  arduinoConnected = true;
+  updateArduinoUI();
+  readArduinoLoop(port);
+  await sendRainStateToArduino();
+  if (arduinoSendTimer) clearInterval(arduinoSendTimer);
+  arduinoSendTimer = setInterval(sendRainStateToArduino, 5 * 60 * 1000);
+}
+
 async function connectArduino() {
   if (!('serial' in navigator)) {
     alert('이 브라우저는 Web Serial을 지원하지 않습니다.\nPC Chrome 또는 Edge를 사용해주세요.');
@@ -1317,21 +1329,54 @@ async function connectArduino() {
   }
   try {
     const port = await navigator.serial.requestPort();
-    await port.open({ baudRate: 9600 });
-    arduinoPort = port;
-    arduinoWriter = port.writable.getWriter();
-    arduinoConnected = true;
-    updateArduinoUI();
-    readArduinoLoop(port);
-    await sendRainStateToArduino();
-    if (arduinoSendTimer) clearInterval(arduinoSendTimer);
-    arduinoSendTimer = setInterval(sendRainStateToArduino, 5 * 60 * 1000); // 5분마다
+    await openArduinoPort(port);
   } catch (e) {
     console.error('아두이노 연결 실패:', e);
     if (e && e.name !== 'NotFoundError') {
       alert('아두이노 연결 실패: ' + (e.message || e));
     }
   }
+}
+
+// 이전에 허가받은 포트가 있으면 페이지 로드 시 자동 연결
+async function autoConnectArduino() {
+  if (!('serial' in navigator)) return;
+  try {
+    const ports = await navigator.serial.getPorts();
+    if (!ports.length) return; // 권한받은 포트 없음 → 사용자가 직접 연결해야
+    // 여러 개면 첫 번째 사용 (HC-05가 보통 하나)
+    for (const port of ports) {
+      try {
+        await openArduinoPort(port);
+        console.log('[아두이노] 자동 재연결 성공');
+        return;
+      } catch (e) {
+        console.warn('[아두이노] 이 포트 열기 실패, 다음 시도:', e.message || e);
+      }
+    }
+  } catch (e) {
+    console.warn('[아두이노] 자동 연결 실패:', e);
+  }
+}
+
+// 외부에서 USB/BT 케이블 분리되면 상태 갱신
+if ('serial' in navigator) {
+  navigator.serial.addEventListener('disconnect', e => {
+    if (e.target === arduinoPort) {
+      console.log('[아두이노] 포트 분리 감지');
+      arduinoConnected = false;
+      arduinoPort = null;
+      arduinoWriter = null;
+      updateArduinoUI();
+    }
+  });
+  navigator.serial.addEventListener('connect', e => {
+    // 같은 포트가 다시 잡히면 재연결 시도
+    if (!arduinoConnected) {
+      console.log('[아두이노] 포트 재발견, 재연결 시도');
+      openArduinoPort(e.target).catch(() => {});
+    }
+  });
 }
 
 async function disconnectArduino() {
@@ -1456,7 +1501,11 @@ loadByCoords = async function(lat, lon, placeName) {
   return r;
 };
 
-window.addEventListener('load', autoLocate);
+window.addEventListener('load', () => {
+  autoLocate();
+  // 위치/날씨 잡힌 다음 잠깐 뒤에 시도 (RAIN 보낼 데이터 준비된 후)
+  setTimeout(autoConnectArduino, 2000);
+});
 </script>
 </body>
 </html>
