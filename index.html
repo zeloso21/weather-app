@@ -452,6 +452,9 @@ async function reverseGeocode(lat, lon) {
   return null;
 }
 
+let currentForecast = null;
+let currentPlaceName = null;
+
 async function loadByCoords(lat, lon, placeName) {
   document.getElementById('content').innerHTML = '<div class="loading">불러오는 중...</div>';
   try {
@@ -461,6 +464,8 @@ async function loadByCoords(lat, lon, placeName) {
     if (!name) {
       name = await reverseGeocode(lat, lon) || '현재 위치';
     }
+    currentForecast = w;
+    currentPlaceName = name;
     render(name, w);
   } catch {
     document.getElementById('content').innerHTML = '<div class="error">날씨를 가져올 수 없습니다</div>';
@@ -665,8 +670,11 @@ function buildSummary(todayLo, todayHi, rainProb, events) {
         desc = '날씨가 좋아요 ☀️'; descSpeech = '날씨가 좋아요.';
         tip = '잘 다녀오세요!'; tipSpeech = '잘 다녀오세요.';
       }
-      locatedDisplay.push(`${tstr}에 ${place}에서 일정이 있으시군요. ${desc} ${tip}`);
-      locatedSpeech.push(`${tstr}에 ${place}에서 일정이 있으시군요. ${descSpeech} ${tipSpeech}`);
+      const intro = ev._weather.isCurrentLocation
+        ? `${tstr}에 일정이 있으시군요.`
+        : `${tstr}에 ${place}에서 일정이 있으시군요.`;
+      locatedDisplay.push(`${intro} ${desc} ${tip}`);
+      locatedSpeech.push(`${intro} ${descSpeech} ${tipSpeech}`);
     }
 
     const otherSegs = [], otherSegsSpeech = [];
@@ -816,12 +824,35 @@ async function getEventWeather(location, eventTime) {
   }
 }
 
+function lookupCurrentForecastAt(eventTime) {
+  if (!currentForecast || !currentForecast.hourly) return null;
+  const h = currentForecast.hourly;
+  const target = eventTime.getTime();
+  let bestIdx = 0, bestDiff = Infinity;
+  for (let i = 0; i < h.time.length; i++) {
+    const diff = Math.abs(new Date(h.time[i]).getTime() - target);
+    if (diff < bestDiff) { bestDiff = diff; bestIdx = i; }
+  }
+  return {
+    placeName: currentPlaceName || '현재 위치',
+    code: h.weather_code[bestIdx],
+    temp: h.temperature_2m[bestIdx],
+    rainProb: h.precipitation_probability[bestIdx] || 0,
+    isCurrentLocation: true,
+  };
+}
+
 async function enrichEventsWithWeather(events) {
   await Promise.all(events.map(async ev => {
     if (!ev.start.dateTime) return;
-    if (!ev.location) return;
     const t = new Date(ev.start.dateTime);
-    ev._weather = await getEventWeather(ev.location, t);
+    if (ev.location) {
+      ev._weather = await getEventWeather(ev.location, t);
+      // 지오코딩 실패 시 현재 위치로 폴백
+      if (!ev._weather) ev._weather = lookupCurrentForecastAt(t);
+    } else {
+      ev._weather = lookupCurrentForecastAt(t);
+    }
   }));
 }
 
