@@ -307,6 +307,7 @@ const wmo = c => WMO[c] || ['❓','알 수 없음','알 수 없음'];
 
 // 시간대별 테마 (낮 07~19시, 밤 19~07시) + 날씨 상태
 let currentWeatherCode = null;
+let currentRainProb = 0;
 const RAIN_CODES = new Set([51,53,55,61,63,65,80,81,82,95,96,99]);
 const SNOW_CODES = new Set([71,73,75,77,85,86]);
 
@@ -316,8 +317,11 @@ function updateTheme() {
   document.body.classList.toggle('night', isNight);
   document.body.classList.toggle('day', !isNight);
 
-  const isRain = currentWeatherCode != null && RAIN_CODES.has(currentWeatherCode);
-  const isSnow = currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
+  const codeIsRain = currentWeatherCode != null && RAIN_CODES.has(currentWeatherCode);
+  const codeIsSnow = currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
+  // 강수확률 50% 이상이면 비/눈으로 간주 (눈 코드면 눈, 아니면 비)
+  const isSnow = codeIsSnow;
+  const isRain = (codeIsRain || currentRainProb >= 50) && !isSnow;
   document.body.classList.toggle('rainy', isRain);
   document.body.classList.toggle('snowy', isSnow);
 
@@ -444,6 +448,7 @@ function render(place, w) {
   const c = w.current, h = w.hourly, d = w.daily;
   const [icon, desc, longDesc] = wmo(c.weather_code);
   currentWeatherCode = c.weather_code;
+  currentRainProb = w.daily.precipitation_probability_max[0] || 0;
   updateTheme();
   const todayHi = Math.round(d.temperature_2m_max[0]);
   const todayLo = Math.round(d.temperature_2m_min[0]);
