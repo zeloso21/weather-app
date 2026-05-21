@@ -417,7 +417,7 @@ function updateTheme() {
   }
 }
 updateTheme();
-setInterval(updateTheme, 60000);
+setInterval(() => { updateTheme(); rebuildSummary(); }, 60000);
 
 // 별 생성
 function makeStars() {
@@ -554,20 +554,20 @@ function render(place, w) {
   const c = w.current, h = w.hourly, d = w.daily;
   const [icon, desc, longDesc] = wmo(c.weather_code);
   currentWeatherCode = c.weather_code;
-  // 현재 시간 기준 강수확률 (시간별 데이터에서 현재 시각에 해당하는 값)
+  // 배경 + 요약 멘트 모두 현재 시각 기준
   const nowT = new Date();
   let curIdx = h.time.findIndex(t => new Date(t) > nowT) - 1;
   if (curIdx < 0) curIdx = 0;
-  currentRainProb = h.precipitation_probability[curIdx] || 0;
+  const probNow = h.precipitation_probability[curIdx] || 0;
+  const tempNow = Math.round(c.temperature_2m);
+  currentRainProb = probNow;
   updateTheme();
+
   const todayHi = Math.round(d.temperature_2m_max[0]);
   const todayLo = Math.round(d.temperature_2m_min[0]);
-  const sunsetTime = new Date(d.sunset[0]);
-  const sunsetStr = `${sunsetTime.getHours()}시 ${String(sunsetTime.getMinutes()).padStart(2,'0')}분`;
 
-  const rainProb = d.precipitation_probability_max[0] || 0;
-  summaryContext = { todayLo, todayHi, rainProb };
-  const { display: summary, speech: summarySpeech } = buildSummary(todayLo, todayHi, rainProb, todayEventsCache);
+  summaryContext = { tempNow, rainProbNow: probNow };
+  const { display: summary, speech: summarySpeech } = buildSummary(tempNow, probNow, todayEventsCache);
   currentSummary = summarySpeech;
 
   // 시간별 예보 (현재부터 24시간)
@@ -712,28 +712,41 @@ function useGPS() {
 let summaryContext = null;
 let todayEventsCache = [];
 
-function buildSummary(todayLo, todayHi, rainProb, events) {
+function filterEventsToShow(events) {
+  if (!events || !events.length) return [];
+  const now = Date.now();
+  const WINDOW = 30 * 60 * 1000; // 일정 30분 전부터
+  return events.filter(ev => {
+    if (!ev.start.dateTime) return true; // 종일 일정은 항상 표시
+    const start = new Date(ev.start.dateTime).getTime();
+    const end = (ev.end && ev.end.dateTime) ? new Date(ev.end.dateTime).getTime() : start + 60 * 60 * 1000;
+    return now >= (start - WINDOW) && now <= end;
+  });
+}
+
+function buildSummary(tempNow, rainProbNow, allEvents) {
+  const events = filterEventsToShow(allEvents);
   const hasEvents = events && events.length;
   let wPart = '', wSpeech = '', closing, closingSpeech;
 
-  if (rainProb === 0) {
+  if (rainProbNow < 40) {
     if (!hasEvents) {
-      wPart = `화창한 날씨네요 ☀️ 최저 기온은 ${todayLo}도이고 최고 기온은 ${todayHi}도입니다.`;
-      wSpeech = `화창한 날씨네요. 최저 기온은 ${todayLo}도이고, 최고 기온은 ${todayHi}도입니다.`;
+      wPart = `현재 화창한 날씨네요 ☀️ 기온은 ${tempNow}도, 강수확률은 ${rainProbNow}%예요.`;
+      wSpeech = `현재 화창한 날씨네요. 기온은 ${tempNow}도, 강수 확률은 ${rainProbNow} 퍼센트예요.`;
     }
     closing = '좋은 하루 되세요~';
     closingSpeech = '좋은 하루 되세요.';
-  } else if (rainProb < 50) {
+  } else if (rainProbNow < 70) {
     if (!hasEvents) {
-      wPart = `비가 올 수도 있어요 🌦️ 최저 기온은 ${todayLo}도이고 최고 기온은 ${todayHi}도입니다. 강수확률은 ${rainProb}%예요.`;
-      wSpeech = `비가 올 수도 있어요. 최저 기온은 ${todayLo}도이고, 최고 기온은 ${todayHi}도입니다. 강수 확률은 ${rainProb} 퍼센트예요.`;
+      wPart = `지금 흐려요 🌦️ 기온은 ${tempNow}도, 강수확률은 ${rainProbNow}%예요.`;
+      wSpeech = `지금 흐려요. 기온은 ${tempNow}도, 강수 확률은 ${rainProbNow} 퍼센트예요.`;
     }
     closing = '멋진 하루 되세요~';
     closingSpeech = '멋진 하루 되세요.';
   } else {
     if (!hasEvents) {
-      wPart = `오늘 비가 와요 ☔ 우산을 꼭 챙기세요! 강수확률 ${rainProb}%, 최저 ${todayLo}도 · 최고 ${todayHi}도입니다.`;
-      wSpeech = `오늘 비가 와요. 우산을 꼭 챙기세요! 강수 확률은 ${rainProb} 퍼센트, 최저 기온은 ${todayLo}도, 최고 기온은 ${todayHi}도입니다.`;
+      wPart = `지금 비가 와요 ☔ 우산을 꼭 챙기세요! 기온은 ${tempNow}도, 강수확률은 ${rainProbNow}%예요.`;
+      wSpeech = `지금 비가 와요. 우산을 꼭 챙기세요! 기온은 ${tempNow}도, 강수 확률은 ${rainProbNow} 퍼센트예요.`;
     }
     closing = '행복한 하루 되세요!';
     closingSpeech = '행복한 하루 되세요!';
@@ -836,8 +849,8 @@ function buildSummary(todayLo, todayHi, rainProb, events) {
 
 function rebuildSummary() {
   if (!summaryContext) return;
-  const { todayLo, todayHi, rainProb } = summaryContext;
-  const { display, speech } = buildSummary(todayLo, todayHi, rainProb, todayEventsCache);
+  const { tempNow, rainProbNow } = summaryContext;
+  const { display, speech } = buildSummary(tempNow, rainProbNow, todayEventsCache);
   currentSummary = speech;
   const el = document.getElementById('summary-text');
   if (el) el.textContent = display;
