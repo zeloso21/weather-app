@@ -670,6 +670,20 @@ function render(place, w) {
         <button class="cal-btn" onclick="googleAuth()">구글 캘린더 연결</button>
       </div>
     </div>
+
+    <div class="card">
+      <div class="card-title" style="justify-content:space-between">
+        <span>🌂 우산 자판기 (아두이노)</span>
+        <span id="arduino-state" style="font-size:11px;text-transform:none;letter-spacing:0;opacity:0.9">미연결</span>
+      </div>
+      <div id="arduino-result">
+        <button class="cal-btn" onclick="connectArduino()">🔗 아두이노 연결 (HC-05)</button>
+        <div style="font-size:11px;opacity:0.65;margin-top:8px;line-height:1.5">
+          ※ PC Chrome/Edge에서 HC-05를 윈도우와 페어링한 후 클릭<br>
+          ※ 폰 브라우저는 HC-05(Classic BT) 직접 연결 불가
+        </div>
+      </div>
+    </div>
   `;
 }
 
@@ -1082,6 +1096,139 @@ async function loadEvents() {
     el.innerHTML = html;
   } catch { el.innerHTML = '<div class="error">일정 가져오기 실패</div>'; }
 }
+
+// ===== 아두이노 (HC-05) Web Serial 연동 =====
+let arduinoPort = null;
+let arduinoWriter = null;
+let arduinoReader = null;
+let arduinoConnected = false;
+let arduinoSendTimer = null;
+
+function updateArduinoUI() {
+  const stateEl = document.getElementById('arduino-state');
+  const resultEl = document.getElementById('arduino-result');
+  if (!stateEl || !resultEl) return;
+  if (arduinoConnected) {
+    stateEl.textContent = '🟢 연결됨';
+    const rainy = isRainExpectedToday();
+    resultEl.innerHTML = `
+      <div style="padding:6px 0;font-size:14px">현재 송신값: <b>RAIN=${rainy ? 1 : 0}</b> ${rainy ? '☔' : '☀️'}</div>
+      <div style="display:flex;gap:8px">
+        <button class="cal-btn" style="flex:1" onclick="sendRainStateToArduino(true)">📡 지금 다시 전송</button>
+        <button class="cal-btn" style="flex:1;background:rgba(255,150,150,0.25)" onclick="disconnectArduino()">연결 해제</button>
+      </div>
+    `;
+  } else {
+    stateEl.textContent = '미연결';
+    resultEl.innerHTML = `
+      <button class="cal-btn" onclick="connectArduino()">🔗 아두이노 연결 (HC-05)</button>
+      <div style="font-size:11px;opacity:0.65;margin-top:8px;line-height:1.5">
+        ※ PC Chrome/Edge에서 HC-05를 윈도우와 페어링한 후 클릭<br>
+        ※ 폰 브라우저는 HC-05(Classic BT) 직접 연결 불가
+      </div>
+    `;
+  }
+}
+
+function isRainExpectedToday() {
+  // 1) 일정 + 그 시각/장소 강수확률 또는 비 코드
+  if (todayEventsCache && todayEventsCache.length) {
+    for (const ev of todayEventsCache) {
+      if (!ev._weather) continue;
+      const rp = ev._weather.rainProb || 0;
+      const code = ev._weather.code;
+      if (RAIN_CODES.has(code) || THUNDER_CODES.has(code) || rp >= 70) return true;
+    }
+  }
+  // 2) 폴백: 현재 위치 오늘 일일 강수확률 최댓값
+  if (currentForecast && currentForecast.daily) {
+    const mx = (currentForecast.daily.precipitation_probability_max || [])[0] || 0;
+    if (mx >= 70) return true;
+  }
+  return false;
+}
+
+async function connectArduino() {
+  if (!('serial' in navigator)) {
+    alert('이 브라우저는 Web Serial을 지원하지 않습니다.\nPC Chrome 또는 Edge를 사용해주세요.');
+    return;
+  }
+  try {
+    const port = await navigator.serial.requestPort();
+    await port.open({ baudRate: 9600 });
+    arduinoPort = port;
+    arduinoWriter = port.writable.getWriter();
+    arduinoConnected = true;
+    updateArduinoUI();
+    readArduinoLoop(port);
+    await sendRainStateToArduino();
+    if (arduinoSendTimer) clearInterval(arduinoSendTimer);
+    arduinoSendTimer = setInterval(sendRainStateToArduino, 5 * 60 * 1000); // 5분마다
+  } catch (e) {
+    console.error('아두이노 연결 실패:', e);
+    if (e && e.name !== 'NotFoundError') {
+      alert('아두이노 연결 실패: ' + (e.message || e));
+    }
+  }
+}
+
+async function disconnectArduino() {
+  if (arduinoSendTimer) { clearInterval(arduinoSendTimer); arduinoSendTimer = null; }
+  try { if (arduinoWriter) await arduinoWriter.close(); } catch (e) {}
+  try { if (arduinoReader) await arduinoReader.cancel(); } catch (e) {}
+  try { if (arduinoPort) await arduinoPort.close(); } catch (e) {}
+  arduinoWriter = null; arduinoReader = null; arduinoPort = null;
+  arduinoConnected = false;
+  updateArduinoUI();
+}
+
+async function readArduinoLoop(port) {
+  if (!port || !port.readable) return;
+  const decoder = new TextDecoder();
+  let buf = '';
+  try {
+    const reader = port.readable.getReader();
+    arduinoReader = reader;
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).trim();
+        buf = buf.slice(idx + 1);
+        if (line) console.log('[아두이노]', line);
+      }
+    }
+  } catch (e) {
+    console.warn('아두이노 읽기 종료:', e);
+    arduinoConnected = false;
+    updateArduinoUI();
+  }
+}
+
+async function sendRainStateToArduino(forceShow) {
+  if (!arduinoConnected || !arduinoWriter) return;
+  const rainy = isRainExpectedToday();
+  const line = `RAIN:${rainy ? 1 : 0}\n`;
+  try {
+    await arduinoWriter.write(new TextEncoder().encode(line));
+    console.log('[전송→아두이노]', line.trim());
+    if (forceShow) updateArduinoUI();
+  } catch (e) {
+    console.error('전송 실패:', e);
+    arduinoConnected = false;
+    updateArduinoUI();
+  }
+}
+
+// 날씨/일정 갱신 후마다 아두이노에도 자동 반영
+const _origRebuild = rebuildSummary;
+rebuildSummary = function() {
+  _origRebuild.apply(this, arguments);
+  if (arduinoConnected) sendRainStateToArduino();
+  updateArduinoUI();
+};
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
