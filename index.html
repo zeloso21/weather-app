@@ -584,7 +584,10 @@ function render(place, w) {
     </div>
 
     <div class="card">
-      <div class="card-title">📆 구글 캘린더</div>
+      <div class="card-title" style="justify-content:space-between">
+        <span>📆 구글 캘린더</span>
+        <button id="switch-acc-btn" onclick="switchGoogleAccount()" style="display:none;background:rgba(255,255,255,0.18);border:none;color:#fff;padding:5px 10px;border-radius:8px;font-size:11px;cursor:pointer;text-transform:none;letter-spacing:0;opacity:1">🔄 계정 변경</button>
+      </div>
       <div id="cal-result">
         <button class="cal-btn" onclick="googleAuth()">구글 캘린더 연결</button>
       </div>
@@ -895,6 +898,20 @@ function googleAuth() {
   tc.requestAccessToken({ prompt: 'select_account' });
 }
 
+function switchGoogleAccount() {
+  const reauth = () => {
+    googleToken = null;
+    todayEventsCache = [];
+    rebuildSummary();
+    const btn = document.getElementById('switch-acc-btn');
+    if (btn) btn.style.display = 'none';
+    googleAuth();
+  };
+  if (googleToken && window.google && google.accounts.oauth2 && google.accounts.oauth2.revoke) {
+    try { google.accounts.oauth2.revoke(googleToken, reauth); } catch (e) { reauth(); }
+  } else { reauth(); }
+}
+
 async function loadEvents() {
   const el = document.getElementById('cal-result');
   el.innerHTML = '<div class="loading">불러오는 중...</div>';
@@ -919,6 +936,9 @@ async function loadEvents() {
     rebuildSummary();
     // 일정 장소별 날씨 비동기 enrich 후 멘트 재구성
     enrichEventsWithWeather(todayEventsCache).then(rebuildSummary);
+
+    const switchBtn = document.getElementById('switch-acc-btn');
+    if (switchBtn) switchBtn.style.display = 'inline-block';
 
     if (!data.items || !data.items.length) { el.innerHTML = '<div style="padding:10px;opacity:0.7;font-size:13px">앞으로 7일간 일정 없음</div>'; return; }
     let html = '';
