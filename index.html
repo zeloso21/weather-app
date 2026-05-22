@@ -1013,15 +1013,21 @@ async function geocodeEventLocation(loc) {
 }
 
 async function getEventWeather(location, eventTime) {
-  if (!location) return null;
+  if (!location) { console.warn('[일정날씨] location 비어있음'); return null; }
   const dateKey = eventTime.toISOString().slice(0, 10);
   const cacheKey = `${location}|${dateKey}`;
   if (eventWeatherCache.has(cacheKey)) return eventWeatherCache.get(cacheKey);
   const geo = await geocodeEventLocation(location);
-  if (!geo) { eventWeatherCache.set(cacheKey, null); return null; }
+  if (!geo) {
+    console.warn('[일정날씨] 지오코딩 실패:', location);
+    eventWeatherCache.set(cacheKey, null); return null;
+  }
   try {
-    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=3`).then(x => x.json());
-    if (!w.hourly || !w.hourly.time) { eventWeatherCache.set(cacheKey, null); return null; }
+    const w = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,weather_code,precipitation&hourly=temperature_2m,weather_code,precipitation_probability&daily=temperature_2m_max,temperature_2m_min&timezone=auto&forecast_days=10`).then(x => x.json());
+    if (!w.hourly || !w.hourly.time) {
+      console.warn('[일정날씨] hourly 데이터 없음:', location, w);
+      eventWeatherCache.set(cacheKey, null); return null;
+    }
     // Open-Meteo는 timezone=auto일 때 시각을 그 위치의 로컬타임 문자열(오프셋 X)로 줌.
     // 브라우저 로컬타임으로 파싱하면 위치 ≠ 브라우저 타임존일 때 어긋남.
     // utc_offset_seconds로 정확한 UTC ms 환산.
@@ -1067,9 +1073,11 @@ async function getEventWeather(location, eventTime) {
       }
     }
     const result = { placeName: geo.name, code, temp, rainProb, lo, hi };
+    console.log('[일정날씨] 성공:', location, '→', geo.name, 'code=' + code, 'rp=' + rainProb + '%');
     eventWeatherCache.set(cacheKey, result);
     return result;
   } catch (e) {
+    console.error('[일정날씨] 예외:', location, e);
     eventWeatherCache.set(cacheKey, null);
     return null;
   }
