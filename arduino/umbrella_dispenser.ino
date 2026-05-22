@@ -36,12 +36,14 @@ const unsigned long WEATHER_TIMEOUT = 6UL * 60UL * 60UL * 1000UL; // 6시간
 unsigned long lastFaceBT = 0;
 const unsigned long FACE_TTS_COOLDOWN = 15000; // 15초
 
-String btBuf = "";
+String btBuf = "";   // BT(Serial1) 입력 버퍼
+String usbBuf = "";  // USB(Serial) 입력 버퍼
 
 // ── 함수 선언 ──
 void runMotor();
 void stopMotor();
-void handleBluetooth();
+void handleSerialInput();
+void processLine(const String& line, Stream& replyTo, const char* src);
 
 void setup() {
   Serial.begin(9600);
@@ -68,8 +70,8 @@ void setup() {
 }
 
 void loop() {
-  // 1) 블루투스 수신
-  handleBluetooth();
+  // 1) BT(HC-05) + USB(Web Serial) 둘 다에서 명령 수신
+  handleSerialInput();
 
   // 2) 센서 입력
   bool irDetected = (digitalRead(IR_PIN) == HIGH);
@@ -113,30 +115,47 @@ void loop() {
   delay(300);
 }
 
-// ── 블루투스 수신 처리 ──
-void handleBluetooth() {
+// ── 한 줄 처리 (RAIN:1 / RAIN:0 / PING) ──
+void processLine(const String& raw, Stream& replyTo, const char* src) {
+  String line = raw;
+  line.trim();
+  if (line.length() == 0) return;
+  Serial.print("["); Serial.print(src); Serial.print(" 수신] "); Serial.println(line);
+  if (line.startsWith("RAIN:")) {
+    int v = line.substring(5).toInt();
+    rainExpected = (v == 1);
+    lastWeatherUpdate = millis();
+    Serial.print("   → 비 예보: ");
+    Serial.println(rainExpected ? "옴" : "안 옴");
+    replyTo.print("ACK RAIN=");
+    replyTo.println(rainExpected ? "1" : "0");
+  } else if (line == "PING") {
+    replyTo.println("PONG");
+  }
+}
+
+// ── 시리얼 수신 처리 (BT + USB 둘 다) ──
+void handleSerialInput() {
+  // BT (HC-05)
   while (btSerial.available()) {
     char c = btSerial.read();
     if (c == '\n' || c == '\r') {
-      btBuf.trim();
-      if (btBuf.length() > 0) {
-        Serial.print("[BT 수신] "); Serial.println(btBuf);
-        if (btBuf.startsWith("RAIN:")) {
-          int v = btBuf.substring(5).toInt();
-          rainExpected = (v == 1);
-          lastWeatherUpdate = millis();
-          Serial.print("   → 비 예보: ");
-          Serial.println(rainExpected ? "옴" : "안 옴");
-          btSerial.print("ACK RAIN=");
-          btSerial.println(rainExpected ? "1" : "0");
-        } else if (btBuf == "PING") {
-          btSerial.println("PONG");
-        }
-      }
+      processLine(btBuf, btSerial, "BT");
       btBuf = "";
     } else {
       btBuf += c;
-      if (btBuf.length() > 48) btBuf = ""; // 오버플로 방지
+      if (btBuf.length() > 48) btBuf = "";
+    }
+  }
+  // USB (Web Serial로 PC 크롬이 직접 전송)
+  while (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n' || c == '\r') {
+      processLine(usbBuf, Serial, "USB");
+      usbBuf = "";
+    } else {
+      usbBuf += c;
+      if (usbBuf.length() > 48) usbBuf = "";
     }
   }
 
