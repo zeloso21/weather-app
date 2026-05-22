@@ -1435,7 +1435,7 @@ async function openArduinoPort(port) {
   readArduinoLoop(port);
   await sendRainStateToArduino();
   if (arduinoSendTimer) clearInterval(arduinoSendTimer);
-  arduinoSendTimer = setInterval(sendRainStateToArduino, 5 * 60 * 1000);
+  arduinoSendTimer = setInterval(sendRainStateToArduino, 30 * 1000);
 }
 
 async function connectArduino() {
