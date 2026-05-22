@@ -7,6 +7,7 @@
 <link rel="manifest" href="manifest.json" />
 <meta name="theme-color" content="#0d0d2e" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
 <meta name="apple-mobile-web-app-title" content="날씨" />
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
@@ -993,22 +994,53 @@ function speakSummary() {
 const eventWeatherCache = new Map();
 
 async function geocodeEventLocation(loc) {
-  // 1) Open-Meteo 지오코딩
-  try {
-    const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(loc)}&count=1&language=ko`).then(x => x.json());
-    if (g.results && g.results.length) {
-      return { lat: g.results[0].latitude, lon: g.results[0].longitude, name: g.results[0].name };
+  // 후보 쿼리 만들기 — 원본 + 콤마 분할 + 접미사 제거 변형
+  const tryOpenMeteo = async (q) => {
+    try {
+      const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=ko`).then(x => x.json());
+      if (g.results && g.results.length) {
+        return { lat: g.results[0].latitude, lon: g.results[0].longitude, name: g.results[0].name };
+      }
+    } catch (e) {}
+    return null;
+  };
+  const tryNominatim = async (q) => {
+    try {
+      const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=1&accept-language=ko`).then(x => x.json());
+      if (r && r.length) {
+        const a = r[0];
+        const nameParts = (a.display_name || '').split(',').map(s => s.trim());
+        return { lat: parseFloat(a.lat), lon: parseFloat(a.lon), name: nameParts[0] || q };
+      }
+    } catch (e) {}
+    return null;
+  };
+
+  // "앞/근처/옆/주변" 등 위치 표현 접미사 제거
+  const stripSuffix = (s) => s.replace(/(앞|근처|옆|주변|건너편|쪽)$/g, '').trim();
+
+  // 콤마/공백으로 후보 분할 — 중복 제거, 짧은 것부터 시도
+  const variants = new Set();
+  variants.add(loc.trim());
+  variants.add(stripSuffix(loc.trim()));
+  for (const part of loc.split(/[,\n]/)) {
+    const p = part.trim();
+    if (p) {
+      variants.add(p);
+      variants.add(stripSuffix(p));
     }
-  } catch (e) {}
-  // 2) Nominatim 폴백 (한국 동/지명에 강함)
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(loc)}&format=json&limit=1&accept-language=ko`).then(x => x.json());
-    if (r && r.length) {
-      const a = r[0];
-      const nameParts = (a.display_name || '').split(',').map(s => s.trim());
-      return { lat: parseFloat(a.lat), lon: parseFloat(a.lon), name: nameParts[0] || loc };
-    }
-  } catch (e) {}
+  }
+  variants.delete('');
+
+  // Nominatim이 한국 지명에 강하니 먼저 시도, 그다음 Open-Meteo
+  for (const q of variants) {
+    const r = await tryNominatim(q);
+    if (r) return r;
+  }
+  for (const q of variants) {
+    const r = await tryOpenMeteo(q);
+    if (r) return r;
+  }
   return null;
 }
 
