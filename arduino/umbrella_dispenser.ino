@@ -23,7 +23,7 @@ const int ENB         = 9;
 
 // ── 설정값 ──
 const int FACE_THRESHOLD = 3000;
-const int MOTOR_SPEED    = 110;
+const int MOTOR_SPEED    = 255;
 const int MOTOR_TIME     = 1500;
 const int COOL_DOWN      = 2000;
 
