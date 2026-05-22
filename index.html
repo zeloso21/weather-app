@@ -977,11 +977,28 @@ async function pickKoreanVoice() {
   return cachedKoVoice;
 }
 
+// TTS 자동재생 잠금 해제 — 첫 사용자 클릭 시 빈 utterance로 API 활성화.
+// 이후엔 시리얼 이벤트 등 user gesture 밖에서도 speak() 작동.
+let ttsUnlocked = false;
+function unlockTTS() {
+  if (ttsUnlocked || !('speechSynthesis' in window)) return;
+  try {
+    const u = new SpeechSynthesisUtterance('');
+    u.volume = 0;
+    speechSynthesis.speak(u);
+    ttsUnlocked = true;
+  } catch (e) {}
+}
+['click', 'touchstart', 'keydown'].forEach(ev =>
+  window.addEventListener(ev, unlockTTS, { once: true, capture: true })
+);
+
 async function speak(text) {
   if (!('speechSynthesis' in window)) {
     alert('이 브라우저는 음성 합성을 지원하지 않습니다.');
     return;
   }
+  unlockTTS();
   speechSynthesis.cancel();
   const btn = document.getElementById('speak-btn');
   if (btn) btn.classList.add('playing');
