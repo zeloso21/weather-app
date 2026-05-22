@@ -451,17 +451,20 @@ function updateTheme() {
   document.body.classList.toggle('night', isNight);
   document.body.classList.toggle('day', !isNight);
 
-  // 천둥/번개 → thunder + rainy (천둥은 보통 비 동반)
-  const isThunder = currentWeatherCode != null && THUNDER_CODES.has(currentWeatherCode);
-  // 눈은 weather_code 기준, 그 외는 강수확률(현재 시간) 기준으로 분기
-  // 0~40% 맑음 / 40~70% 흐림 / 70~100% 비 내림
-  const isSnow = !isThunder && currentWeatherCode != null && SNOW_CODES.has(currentWeatherCode);
+  // 다가오는 일정(30분 윈도우, 시작 전)이 있으면 그 일정 날씨로 배경 결정
+  // 그 외엔 현재 위치 날씨로
+  const upcoming = (typeof getUpcomingEventForTheme === 'function') ? getUpcomingEventForTheme() : null;
+  const code = upcoming && upcoming._weather ? upcoming._weather.code : currentWeatherCode;
+  const rainProb = upcoming && upcoming._weather ? (upcoming._weather.rainProb || 0) : currentRainProb;
+
+  const isThunder = code != null && THUNDER_CODES.has(code);
+  const isSnow = !isThunder && code != null && SNOW_CODES.has(code);
   let isRain = false, isCloudy = false;
   if (!isSnow && !isThunder) {
-    if (currentRainProb >= 70) isRain = true;
-    else if (currentRainProb >= 40) isCloudy = true;
+    if (rainProb >= 70) isRain = true;
+    else if (rainProb >= 40) isCloudy = true;
   } else if (isThunder) {
-    isRain = true; // 천둥치면 비도 같이
+    isRain = true;
   }
   document.body.classList.toggle('rainy', isRain);
   document.body.classList.toggle('snowy', isSnow);
@@ -781,13 +784,29 @@ let todayEventsCache = [];
 function filterEventsToShow(events) {
   if (!events || !events.length) return [];
   const now = Date.now();
-  const WINDOW = 30 * 60 * 1000; // 일정 30분 전부터
+  const WINDOW = 30 * 60 * 1000; // 일정 30분 전부터, 시작 시각 직전까지
   return events.filter(ev => {
     if (!ev.start.dateTime) return true; // 종일 일정은 항상 표시
     const start = new Date(ev.start.dateTime).getTime();
-    const end = (ev.end && ev.end.dateTime) ? new Date(ev.end.dateTime).getTime() : start + 60 * 60 * 1000;
-    return now >= (start - WINDOW) && now <= end;
+    // 약속 시각이 지나면 일정 기반 안내 종료 → 현 위치 기반으로 폴백
+    return now >= (start - WINDOW) && now < start;
   });
+}
+
+// 다가오는 일정(시작 전 30분 윈도우 안) 중 가장 가까운 것 — 배경/테마에 사용
+function getUpcomingEventForTheme() {
+  if (!todayEventsCache || !todayEventsCache.length) return null;
+  const now = Date.now();
+  const WINDOW = 30 * 60 * 1000;
+  const cands = todayEventsCache.filter(ev => {
+    if (!ev._weather) return false;
+    if (!ev.start.dateTime) return false;
+    const start = new Date(ev.start.dateTime).getTime();
+    return now >= (start - WINDOW) && now < start;
+  });
+  if (!cands.length) return null;
+  cands.sort((a, b) => new Date(a.start.dateTime).getTime() - new Date(b.start.dateTime).getTime());
+  return cands[0];
 }
 
 function buildSummary(tempNow, rainProbNow, allEvents) {
