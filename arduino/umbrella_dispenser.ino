@@ -20,7 +20,6 @@ const int IN3         = 7;
 const int IN4         = 8;
 const int ENA         = 4;
 const int ENB         = 9;
-const int SPEAKER_PIN = 12;
 
 // ── 설정값 ──
 const int FACE_THRESHOLD = 3000;
@@ -42,7 +41,6 @@ String btBuf = "";
 // ── 함수 선언 ──
 void runMotor();
 void stopMotor();
-void playDoReMi();
 void handleBluetooth();
 
 void setup() {
@@ -54,7 +52,6 @@ void setup() {
   pinMode(IN1, OUTPUT); pinMode(IN2, OUTPUT);
   pinMode(IN3, OUTPUT); pinMode(IN4, OUTPUT);
   pinMode(ENA, OUTPUT); pinMode(ENB, OUTPUT);
-  pinMode(SPEAKER_PIN, OUTPUT);
 
   stopMotor();
 
@@ -104,7 +101,6 @@ void loop() {
   if (rainExpected && irDetected && faceDetected) {
     Serial.println(">> ★ 비 + 우산 + 외출 감지! 우산 내보냅니다.");
     btSerial.println("EVENT umbrella_dispensed");
-    playDoReMi();
     runMotor();
     delay(MOTOR_TIME);
     stopMotor();
@@ -150,18 +146,6 @@ void handleBluetooth() {
     rainExpected = false;
     lastWeatherUpdate = 0;
   }
-}
-
-// ── 도레미파솔라시도 ──
-void playDoReMi() {
-  int notes[]    = {262, 294, 330, 349, 392, 440, 494, 523};
-  int duration[] = {200, 200, 200, 200, 200, 200, 200, 400};
-  for (int i = 0; i < 8; i++) {
-    tone(SPEAKER_PIN, notes[i], duration[i]);
-    delay((int)(duration[i] * 1.2));
-    noTone(SPEAKER_PIN);
-  }
-  Serial.println("   [스피커] 도레미파솔라시도 완료");
 }
 
 // ── 모터 회전 ──
