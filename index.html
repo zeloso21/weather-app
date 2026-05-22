@@ -1568,8 +1568,17 @@ rebuildSummary = function() {
 };
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('service-worker.js').catch(() => {});
+  window.addEventListener('load', async () => {
+    try {
+      // 옛 캐시 강제 삭제 (이전 버전의 stale 캐시가 화면 갱신 막던 문제 해소)
+      if (window.caches) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map(k => caches.delete(k)));
+      }
+      const reg = await navigator.serviceWorker.register('service-worker.js');
+      // 업데이트 확인 — 새 SW가 있으면 즉시 적용
+      reg.update().catch(() => {});
+    } catch (e) {}
   });
 }
 
