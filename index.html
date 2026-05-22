@@ -1410,28 +1410,19 @@ function updateArduinoUI() {
 }
 
 function isRainExpectedToday() {
-  // 30분 윈도우 안 일정이 하나라도 있으면 → 그 일정들로만 판단 (현재 위치는 무시)
-  if (todayEventsCache && todayEventsCache.length) {
-    const now = Date.now();
-    const WINDOW = 30 * 60 * 1000;
-    const inWindow = todayEventsCache.filter(ev => {
-      if (!ev._weather) return false;
-      if (!ev.start.dateTime) return true; // 종일 일정
-      const start = new Date(ev.start.dateTime).getTime();
-      const end = (ev.end && ev.end.dateTime) ? new Date(ev.end.dateTime).getTime() : start + 60 * 60 * 1000;
-      return now >= (start - WINDOW) && now <= end;
-    });
-    if (inWindow.length) {
-      for (const ev of inWindow) {
-        const rp = ev._weather.rainProb || 0;
-        const code = ev._weather.code;
-        if (RAIN_CODES.has(code) || THUNDER_CODES.has(code) || rp >= 70) return true;
-      }
-      return false; // 일정 있는데 그 일정들 다 비 안 옴 → RAIN=0 (현재 위치 폴백 안 함)
-    }
+  // 강수확률 50% 이상이면 비 오는 것으로 판단.
+  // 다가오는 시간 지정 일정(시작 전 30분 윈도우) OR 현재 위치 — 둘 중 하나라도 비면 RAIN=1.
+  // 종일 일정은 시간 기준이 없어 카운트 안 함.
+  const THRESHOLD = 50;
+
+  const upcoming = (typeof getUpcomingEventForTheme === 'function') ? getUpcomingEventForTheme() : null;
+  if (upcoming && upcoming._weather) {
+    const rp = upcoming._weather.rainProb || 0;
+    const code = upcoming._weather.code;
+    if (RAIN_CODES.has(code) || THUNDER_CODES.has(code) || rp >= THRESHOLD) return true;
   }
-  // 30분 윈도우 안 일정 없을 때만 → 현재 위치 · 현재 시각 강수확률 폴백
-  if (currentRainProb >= 70) return true;
+
+  if (currentRainProb >= THRESHOLD) return true;
   return false;
 }
 
