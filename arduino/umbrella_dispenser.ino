@@ -92,17 +92,19 @@ void loop() {
   Serial.print("  [얼굴] "); Serial.print(faceDetected ? "감지O" : "감지X");
   Serial.print("  [크기] "); Serial.println(faceArea);
 
-  // 4) 얼굴 감지 → 앱이 TTS 멘트 재생하도록 신호 (쿨다운으로 스팸 방지)
-  if (faceDetected && (millis() - lastFaceBT) > FACE_TTS_COOLDOWN) {
+  // 4) 적외선(우산 있음) + 얼굴(외출) 동시 감지 → 앱이 TTS 멘트 재생
+  if (irDetected && faceDetected && (millis() - lastFaceBT) > FACE_TTS_COOLDOWN) {
     btSerial.println("FACE");
+    Serial.println("FACE");   // USB로 연결된 앱도 받도록
     lastFaceBT = millis();
-    Serial.println(">> [BT 송신] FACE — 앱이 멘트 재생");
+    Serial.println(">> [송신] FACE — 앱이 멘트 재생");
   }
 
   // 5) 비 + 우산 + 외출(얼굴) 동시 감지 → 우산 내보내기
   if (rainExpected && irDetected && faceDetected) {
     Serial.println(">> ★ 비 + 우산 + 외출 감지! 우산 내보냅니다.");
     btSerial.println("EVENT umbrella_dispensed");
+    Serial.println("EVENT umbrella_dispensed");
     runMotor();
     delay(MOTOR_TIME);
     stopMotor();
