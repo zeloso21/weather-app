@@ -994,7 +994,6 @@ function speakSummary() {
 const eventWeatherCache = new Map();
 
 async function geocodeEventLocation(loc) {
-  // 후보 쿼리 만들기 — 원본 + 콤마 분할 + 접미사 제거 변형
   const tryOpenMeteo = async (q) => {
     try {
       const g = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=ko`).then(x => x.json());
@@ -1016,31 +1015,60 @@ async function geocodeEventLocation(loc) {
     return null;
   };
 
-  // "앞/근처/옆/주변" 등 위치 표현 접미사 제거
-  const stripSuffix = (s) => s.replace(/(앞|근처|옆|주변|건너편|쪽)$/g, '').trim();
+  // 한국어 위치 표현 접미사 (장소 자체가 아닌 방향/위치 표현)
+  const SUFFIX_RE = /(앞|뒤|옆|위|아래|근처|주변|부근|인근|건너편|건너|쪽|일대|일원|방면|쪽)$/;
+  const stripSuffix = (s) => {
+    let prev;
+    do { prev = s; s = s.replace(SUFFIX_RE, '').trim(); } while (s !== prev);
+    return s;
+  };
 
-  // 콤마/공백으로 후보 분할 — 중복 제거, 짧은 것부터 시도
-  const variants = new Set();
-  variants.add(loc.trim());
-  variants.add(stripSuffix(loc.trim()));
-  for (const part of loc.split(/[,\n]/)) {
-    const p = part.trim();
-    if (p) {
-      variants.add(p);
-      variants.add(stripSuffix(p));
+  // 한국 지명 패턴 — 핵심 단위명으로 끝나는 청크 추출
+  // 역/동/구/시/도/군/읍/면/리/광장/공원/대학교/대학/병원/타워/빌딩/호텔/시장/마을/단지/거리/로/길/항/포구/섬/산/강/호/해변
+  const PLACE_RE = /[가-힣A-Za-z0-9·\-]+(?:역|동|구|시|도|군|읍|면|리|광장|공원|대학교|대학|병원|타워|빌딩|호텔|시장|마을|단지|거리|항|포구|섬|산|강|해변|온천|놀이공원|랜드)/g;
+
+  const candidates = new Set();
+  const orig = loc.trim();
+  if (!orig) return null;
+  candidates.add(orig);
+  candidates.add(stripSuffix(orig));
+
+  // 콤마/줄바꿈으로 분할
+  for (const part of orig.split(/[,\n]/).map(s => s.trim()).filter(Boolean)) {
+    candidates.add(part);
+    candidates.add(stripSuffix(part));
+  }
+
+  // 핵심 지명 패턴 추출 — 긴 것 먼저 (구체적인 게 더 정확)
+  const extracted = (orig.match(PLACE_RE) || []).sort((a, b) => b.length - a.length);
+  for (const m of extracted) candidates.add(m);
+
+  // 공백 분리 뒤쪽 단어들 (마지막 단어가 보통 핵심 지명 — "서울대학교 병원" → "병원")
+  const words = orig.split(/\s+/).filter(Boolean);
+  if (words.length > 1) {
+    candidates.add(words[words.length - 1]);
+    candidates.add(words.slice(-2).join(' '));
+  }
+
+  candidates.delete('');
+  const list = [...candidates];
+
+  // Nominatim 먼저(한국 지명 강함), 다음 Open-Meteo
+  for (const q of list) {
+    const r = await tryNominatim(q);
+    if (r) {
+      console.log('[지오코딩] Nominatim 매칭:', q, '→', r.name);
+      return r;
     }
   }
-  variants.delete('');
-
-  // Nominatim이 한국 지명에 강하니 먼저 시도, 그다음 Open-Meteo
-  for (const q of variants) {
-    const r = await tryNominatim(q);
-    if (r) return r;
-  }
-  for (const q of variants) {
+  for (const q of list) {
     const r = await tryOpenMeteo(q);
-    if (r) return r;
+    if (r) {
+      console.log('[지오코딩] Open-Meteo 매칭:', q, '→', r.name);
+      return r;
+    }
   }
+  console.warn('[지오코딩] 모든 후보 실패. 시도한 쿼리:', list);
   return null;
 }
 
