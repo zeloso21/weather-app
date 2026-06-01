@@ -1041,7 +1041,7 @@ function buildSummary(tempNow, rainProbNow, allEvents, extras) {
   const advSpeech = advisoriesSpeech.length ? ' ' + advisoriesSpeech.join(' ') : '';
 
   return {
-    display: wPart + envPart + ePart + advPart + ' ' + closing,
+    display: wPart + ePart + advPart + ' ' + closing,
     speech:  wSpeech + envSpeech + eSpeech + advSpeech + ' ' + closingSpeech
   };
 }
