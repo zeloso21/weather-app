@@ -3,7 +3,7 @@
 
 // Arduino Mega 2560 기준 핀 매핑
 //   I2C    : SDA=20, SCL=21 (HUSKYLENS — Wire가 자동 사용)
-//   HC-SR04: TRIG=2, ECHO=3 (5V/GND 공급)
+//   HC-SR04: TRIG=10, ECHO=11 (5V/GND 공급)
 //   HC-05  : TX1=18 → HC-05 RXD (전압분주 1kΩ+2kΩ로 5V→3.3V 강하 필수)
 //            RX1=19 ← HC-05 TXD (직결 OK)
 // Uno에서 옮긴 경우 차이점:
@@ -14,8 +14,8 @@ HUSKYLENS huskylens;
 #define btSerial Serial1
 
 // ── 핀 설정 ──
-const int TRIG_PIN    = 2;   // HC-SR04 Trig (구 IR 자리)
-const int ECHO_PIN    = 3;   // HC-SR04 Echo
+const int TRIG_PIN    = 10;  // HC-SR04 Trig
+const int ECHO_PIN    = 11;  // HC-SR04 Echo
 const int IN1         = 5;
 const int IN2         = 6;
 const int IN3         = 7;
