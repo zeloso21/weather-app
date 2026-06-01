@@ -245,6 +245,12 @@
     text-align: center; font-size: 16px; opacity: 0.9;
     margin-top: 4px;
   }
+  .loc-tag {
+    display: inline-block; margin-left: 6px;
+    font-size: 10px; padding: 2px 8px; border-radius: 10px;
+    background: rgba(255,200,100,0.30); color: #ffd866;
+    font-weight: 600; vertical-align: middle;
+  }
 
   /* 일정 리스트 */
   .events-card .card-title { justify-content: space-between; }
@@ -668,6 +674,61 @@ function pm25Grade(v) {
   return         { label: '매우 나쁨', cls: 'g-vbad', badOrAbove: true };
 }
 
+// 다가오는 일정(30분 이내)이 있으면 그 장소 날씨로, 없으면 현재 위치 날씨로
+function getHeroContext() {
+  if (!currentForecast) return null;
+  const d = currentForecast.daily;
+  const upcoming = (typeof getUpcomingEventForTheme === 'function') ? getUpcomingEventForTheme() : null;
+  if (upcoming && upcoming._weather) {
+    const ev = upcoming._weather;
+    return {
+      place: ev.placeName || upcoming.location || '일정 장소',
+      code: ev.code,
+      temp: ev.temp,
+      rainProb: ev.rainProb || 0,
+      hi: ev.hi != null ? Math.round(ev.hi) : Math.round(d.temperature_2m_max[0]),
+      lo: ev.lo != null ? Math.round(ev.lo) : Math.round(d.temperature_2m_min[0]),
+      isEvent: true
+    };
+  }
+  const c = currentForecast.current;
+  return {
+    place: currentPlaceName || '현재 위치',
+    code: c.weather_code,
+    temp: c.temperature_2m,
+    rainProb: d.precipitation_probability_max[0] || 0,
+    hi: Math.round(d.temperature_2m_max[0]),
+    lo: Math.round(d.temperature_2m_min[0]),
+    isEvent: false
+  };
+}
+
+function buildHeroHTML(ctx) {
+  const [icon, desc] = wmo(ctx.code);
+  return `<div class="hero">
+    <div class="hero-head">
+      <div class="loc"><span class="pin">📍</span>${ctx.place}${ctx.isEvent ? ' <span class="loc-tag">📅 일정</span>' : ''}</div>
+      <div class="now-label">${ctx.isEvent ? '일정 시' : '지금'}</div>
+    </div>
+    <div class="hero-main">
+      <div class="h-icon">${icon}</div>
+      <div class="h-temp">${Math.round(ctx.temp)}<sup>°</sup></div>
+      <div class="h-prob">
+        <div class="label">강수확률</div>
+        <div class="val">${Math.round(ctx.rainProb)}%</div>
+      </div>
+    </div>
+    <div class="desc">${desc} · 최고 ${ctx.hi}° · 최저 ${ctx.lo}°</div>
+  </div>`;
+}
+
+function updateHero() {
+  const wrap = document.getElementById('hero-wrap');
+  if (!wrap) return;
+  const ctx = getHeroContext();
+  if (ctx) wrap.innerHTML = buildHeroHTML(ctx);
+}
+
 function render(place, w, aq) {
   const c = w.current, h = w.hourly, d = w.daily;
   const [icon, desc, longDesc] = wmo(c.weather_code);
@@ -766,21 +827,7 @@ function render(place, w, aq) {
   }
 
   document.getElementById('content').innerHTML = `
-    <div class="hero">
-      <div class="hero-head">
-        <div class="loc"><span class="pin">📍</span>${place}</div>
-        <div class="now-label">지금</div>
-      </div>
-      <div class="hero-main">
-        <div class="h-icon">${icon}</div>
-        <div class="h-temp">${Math.round(c.temperature_2m)}<sup>°</sup></div>
-        <div class="h-prob">
-          <div class="label">강수확률</div>
-          <div class="val">${rainProbToday}%</div>
-        </div>
-      </div>
-      <div class="desc">${desc} · 최고 ${todayHi}° · 최저 ${todayLo}°</div>
-    </div>
+    <div id="hero-wrap">${buildHeroHTML(getHeroContext())}</div>
 
     ${(() => {
       const uvg = uvGrade(uv), p10g = pm10Grade(pm10), p25g = pm25Grade(pm25);
@@ -1047,6 +1094,7 @@ function buildSummary(tempNow, rainProbNow, allEvents, extras) {
 }
 
 function rebuildSummary() {
+  updateHero();
   if (!summaryContext) return;
   const { tempNow, rainProbNow, uv, pm10, pm25, diurnal } = summaryContext;
   const { display, speech } = buildSummary(tempNow, rainProbNow, todayEventsCache, { uv, pm10, pm25, diurnal });
