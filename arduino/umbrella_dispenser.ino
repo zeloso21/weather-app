@@ -37,7 +37,16 @@ const unsigned long WEATHER_TIMEOUT = 6UL * 60UL * 60UL * 1000UL; // 6시간
 
 // 얼굴 감지 → 앱 TTS 트리거 쿨다운
 unsigned long lastFaceBT = 0;
+bool faceBTFiredOnce = false;
 const unsigned long FACE_TTS_COOLDOWN = 15000; // 15초
+
+// 얼굴 감지 sticky — 한 번 잡으면 짧은 시간 유지로 간주 (플리커 보정)
+unsigned long lastFaceSeenMs = 0;
+const unsigned long FACE_STICKY_MS = 2000;
+
+// "모터 스킵 사유" 로그 throttle
+unsigned long lastSkipLog = 0;
+const unsigned long SKIP_LOG_INTERVAL = 5000;
 
 String btBuf = "";   // BT(Serial1) 입력 버퍼
 String usbBuf = "";  // USB(Serial) 입력 버퍼
@@ -95,25 +104,32 @@ void loop() {
     }
   }
 
+  // 얼굴 sticky 처리: 한 번 잡혔으면 2초 동안 유지로 간주
+  if (faceDetected) lastFaceSeenMs = millis();
+  bool faceActive = (lastFaceSeenMs != 0) && ((millis() - lastFaceSeenMs) < FACE_STICKY_MS);
+
   // 3) 디버그 출력
   Serial.print("[비예보] "); Serial.print(rainExpected ? "O" : "X");
   Serial.print("  [거리] ");
   if (distCm < 0) Serial.print("측정실패");
   else { Serial.print(distCm); Serial.print("cm"); }
   Serial.print("  [우산] "); Serial.print(umbrellaDetected ? "꽂힘" : "없음");
-  Serial.print("  [얼굴] "); Serial.print(faceDetected     ? "감지O" : "감지X");
+  Serial.print("  [얼굴] "); Serial.print(faceActive       ? "감지O" : "감지X");
+  if (faceDetected) Serial.print("(now)");
   Serial.print("  [크기] "); Serial.println(faceArea);
 
   // 4) 우산 꽂힌 상태 + 얼굴 감지 → 앱이 TTS 멘트 재생 (쿨다운으로 스팸 방지)
-  if (umbrellaDetected && faceDetected && (millis() - lastFaceBT) > FACE_TTS_COOLDOWN) {
+  bool cooldownOk = (!faceBTFiredOnce) || ((millis() - lastFaceBT) > FACE_TTS_COOLDOWN);
+  if (umbrellaDetected && faceActive && cooldownOk) {
     btSerial.println("FACE");
     Serial.println("FACE");   // USB로 연결된 앱도 받도록
     lastFaceBT = millis();
+    faceBTFiredOnce = true;
     Serial.println(">> [송신] FACE — 앱이 멘트 재생");
   }
 
   // 5) 비 + 우산(초음파) + 외출(얼굴) 동시 감지 → 우산 내보내기
-  if (rainExpected && umbrellaDetected && faceDetected) {
+  if (rainExpected && umbrellaDetected && faceActive) {
     Serial.println(">> ★ 비 + 우산 + 외출 감지! 우산 내보냅니다.");
     btSerial.println("EVENT umbrella_dispensed");
     Serial.println("EVENT umbrella_dispensed");
@@ -124,6 +140,13 @@ void loop() {
     delay(COOL_DOWN);
   } else {
     stopMotor();
+    // 거의 다 충족됐는데 한 조건만 빠졌으면 그 이유를 5초마다 한 번씩 안내
+    if (umbrellaDetected && faceActive && !rainExpected) {
+      if (millis() - lastSkipLog > SKIP_LOG_INTERVAL) {
+        Serial.println(">> [모터 스킵] 비예보 X — 앱이 RAIN:1을 안 보내고 있습니다.");
+        lastSkipLog = millis();
+      }
+    }
   }
 
   delay(300);
