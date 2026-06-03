@@ -1614,12 +1614,19 @@ async function openArduinoPort(port) {
   if (arduinoOpening) return;
   arduinoOpening = true;
   try {
-    // 포트가 이미 열려 있으면(잔여 상태/외부 open) 다시 open 하지 않음 → "already open" 회피
-    if (!(port.readable || port.writable)) {
+    // 이전 연결 잔여물 정리 (끊겼다 다시 붙을 때 깨끗한 상태로)
+    try { if (arduinoReader) await arduinoReader.cancel(); } catch (e) {}
+    try { if (arduinoReader) arduinoReader.releaseLock(); } catch (e) {}
+    try { if (arduinoWriter) arduinoWriter.releaseLock(); } catch (e) {}
+    arduinoReader = null; arduinoWriter = null;
+    try {
       await port.open({ baudRate: 9600 });
+    } catch (e) {
+      // 이미 열려 있으면(connect 이벤트 경합 등) 무시하고 진행
+      if (!(e && e.name === 'InvalidStateError')) throw e;
     }
     arduinoPort = port;
-    if (!arduinoWriter) arduinoWriter = port.writable.getWriter();
+    arduinoWriter = port.writable.getWriter();   // 연결 때마다 항상 새 writer → 스스로 복구
     arduinoConnected = true;
     updateArduinoUI();
     readArduinoLoop(port);
