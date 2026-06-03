@@ -1562,6 +1562,7 @@ let arduinoWriter = null;
 let arduinoReader = null;
 let arduinoConnected = false;
 let arduinoSendTimer = null;
+let arduinoOpening = false; // open() 중복 호출(경합) 방지
 
 function updateArduinoUI() {
   const stateEl = document.getElementById('arduino-state');
@@ -1607,15 +1608,27 @@ function isRainExpectedToday() {
 }
 
 async function openArduinoPort(port) {
-  await port.open({ baudRate: 9600 });
-  arduinoPort = port;
-  arduinoWriter = port.writable.getWriter();
-  arduinoConnected = true;
-  updateArduinoUI();
-  readArduinoLoop(port);
-  await sendRainStateToArduino();
-  if (arduinoSendTimer) clearInterval(arduinoSendTimer);
-  arduinoSendTimer = setInterval(sendRainStateToArduino, 30 * 1000);
+  // 이미 같은 포트로 연결돼 있으면 아무것도 안 함
+  if (arduinoConnected && arduinoPort === port) return;
+  // 다른 open() 호출이 진행 중이면 (autoConnect + connect 이벤트 경합) 중복 실행 방지
+  if (arduinoOpening) return;
+  arduinoOpening = true;
+  try {
+    // 포트가 이미 열려 있으면(잔여 상태/외부 open) 다시 open 하지 않음 → "already open" 회피
+    if (!(port.readable || port.writable)) {
+      await port.open({ baudRate: 9600 });
+    }
+    arduinoPort = port;
+    if (!arduinoWriter) arduinoWriter = port.writable.getWriter();
+    arduinoConnected = true;
+    updateArduinoUI();
+    readArduinoLoop(port);
+    await sendRainStateToArduino();
+    if (arduinoSendTimer) clearInterval(arduinoSendTimer);
+    arduinoSendTimer = setInterval(sendRainStateToArduino, 30 * 1000);
+  } finally {
+    arduinoOpening = false;
+  }
 }
 
 async function connectArduino() {
