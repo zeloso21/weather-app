@@ -593,152 +593,17 @@ function toggleSearch() {
   }
 }
 
-// ── 네트워크 견고화: 응답 실패(502 등)면 자동 재시도 ──
-async function fetchJSON(url, { retries = 4, baseDelay = 700 } = {}) {
-  let lastErr;
-  for (let i = 0; i <= retries; i++) {
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      return await res.json();
-    } catch (e) {
-      lastErr = e;
-      if (i < retries) await new Promise(r => setTimeout(r, baseDelay * (i + 1)));
-    }
-  }
-  throw lastErr;
-}
-
-// ── 마지막으로 성공한 날씨 payload 캐시 (API 장애 시 폴백) ──
-const LAST_WX_KEY = 'weather-app-last-weather';
-let weatherRetryTimer = null;
-function saveLastWeather(p) { try { localStorage.setItem(LAST_WX_KEY, JSON.stringify(p)); } catch (e) {} }
-function getLastWeather() { try { const v = localStorage.getItem(LAST_WX_KEY); return v ? JSON.parse(v) : null; } catch (e) { return null; } }
-
-// ── 폴백 기상 출처: MET Norway(노르웨이 기상청) → Open-Meteo 형식으로 변환 ──
-// met.no symbol_code → WMO code
-function metSymbolToWmo(sym) {
-  if (!sym) return 3;
-  const s = sym.replace(/_(day|night|polartwilight)$/, '');
-  const map = {
-    clearsky: 0, fair: 1, partlycloudy: 2, cloudy: 3, fog: 45,
-    lightrain: 51, lightrainshowers: 51, lightsleet: 51, lightsleetshowers: 51,
-    rain: 63, rainshowers: 63, sleet: 63, sleetshowers: 63,
-    heavyrain: 65, heavyrainshowers: 65, heavysleet: 65, heavysleetshowers: 65,
-    lightsnow: 71, lightsnowshowers: 71, snow: 73, snowshowers: 73, heavysnow: 75, heavysnowshowers: 75,
-    lightrainandthunder: 95, rainandthunder: 95, heavyrainandthunder: 95,
-    lightrainshowersandthunder: 95, rainshowersandthunder: 95, heavyrainshowersandthunder: 95,
-    sleetandthunder: 95, snowandthunder: 95, sleetshowersandthunder: 95, snowshowersandthunder: 95
-  };
-  return map[s] != null ? map[s] : 3;
-}
-function metCodeSeverity(code) {
-  if (THUNDER_CODES.has(code)) return 5;
-  if (SNOW_CODES.has(code)) return 4;
-  if (RAIN_CODES.has(code)) return 3;
-  if (code === 45) return 2;
-  if (code === 3) return 1;
-  return 0;
-}
-// 강수확률(PoP) 미제공 → symbol + 강수량으로 추정
-function metEstProb(sym, precip) {
-  const s = (sym || '').replace(/_(day|night|polartwilight)$/, '');
-  let p = 0;
-  if (/thunder/.test(s) || /^heavy(rain|sleet|snow)/.test(s)) p = 90;
-  else if (/(rain|sleet|snow)/.test(s)) p = /^light/.test(s) ? 60 : 80;
-  else if (s === 'cloudy' || s === 'fog') p = 20;
-  else if (s === 'partlycloudy') p = 15;
-  else if (s === 'fair') p = 5;
-  if (precip > 0) p = Math.max(p, 70);
-  return p;
-}
-function metNoToOpenMeteo(j) {
-  const ts = (j.properties && j.properties.timeseries) || [];
-  const hourly = { time: [], temperature_2m: [], weather_code: [], precipitation_probability: [] };
-  const dailyMap = new Map();
-  const sumOf = e => {
-    const n1 = e.data.next_1_hours, n6 = e.data.next_6_hours, n = n1 || n6;
-    return n && n.summary ? n.summary.symbol_code : null;
-  };
-  const precOf = e => {
-    const n1 = e.data.next_1_hours, n6 = e.data.next_6_hours;
-    if (n1 && n1.details && typeof n1.details.precipitation_amount === 'number') return n1.details.precipitation_amount;
-    if (n6 && n6.details && typeof n6.details.precipitation_amount === 'number') return n6.details.precipitation_amount;
-    return 0;
-  };
-  for (const e of ts) {
-    const det = (e.data.instant && e.data.instant.details) || {};
-    const temp = det.air_temperature;
-    const sym = sumOf(e);
-    const code = metSymbolToWmo(sym);
-    const precip = precOf(e);
-    const hourPrecip = (e.data.next_1_hours && e.data.next_1_hours.details && e.data.next_1_hours.details.precipitation_amount) || 0;
-    const prob = metEstProb(sym, hourPrecip);
-
-    hourly.time.push(e.time);
-    hourly.temperature_2m.push(temp);
-    hourly.weather_code.push(code);
-    hourly.precipitation_probability.push(prob);
-
-    const d = new Date(e.time);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-    let day = dailyMap.get(key);
-    if (!day) { day = { min: temp, max: temp, sum: 0, maxProb: 0, code: code, sev: -1 }; dailyMap.set(key, day); }
-    if (temp != null) { day.min = Math.min(day.min, temp); day.max = Math.max(day.max, temp); }
-    day.sum += precip || 0;
-    day.maxProb = Math.max(day.maxProb, prob);
-    const sev = metCodeSeverity(code);
-    if (sev > day.sev) { day.sev = sev; day.code = code; }
-  }
-  const daily = { time: [], weather_code: [], temperature_2m_max: [], temperature_2m_min: [], precipitation_sum: [], precipitation_probability_max: [] };
-  for (const key of [...dailyMap.keys()].sort()) {
-    const day = dailyMap.get(key);
-    daily.time.push(key);
-    daily.weather_code.push(day.code);
-    daily.temperature_2m_max.push(day.max);
-    daily.temperature_2m_min.push(day.min);
-    daily.precipitation_sum.push(Math.round(day.sum * 10) / 10);
-    daily.precipitation_probability_max.push(day.maxProb);
-  }
-  const c0 = (ts[0] && ts[0].data.instant && ts[0].data.instant.details) || {};
-  const cSym = ts[0] ? sumOf(ts[0]) : null;
-  const current = {
-    temperature_2m: c0.air_temperature,
-    relative_humidity_2m: c0.relative_humidity,
-    weather_code: metSymbolToWmo(cSym),
-    wind_speed_10m: c0.wind_speed,
-    precipitation: ts[0] ? precOf(ts[0]) : 0,
-    is_day: 1,
-    uv_index: null
-  };
-  return { current, hourly, daily, _source: 'metno' };
-}
-
-// 예보: Open-Meteo 우선, 실패 시 MET Norway 폴백
-async function fetchForecast(lat, lon) {
-  try {
-    return await fetchJSON(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation,is_day,uv_index&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=10`, { retries: 2 });
-  } catch (e) {
-    console.warn('[날씨] Open-Meteo 실패 → MET Norway 폴백 시도');
-    const j = await fetchJSON(`https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${lat}&lon=${lon}`, { retries: 2 });
-    return metNoToOpenMeteo(j);
-  }
-}
-
 async function load(city) {
   document.getElementById('content').innerHTML = '<div class="loading">불러오는 중...</div>';
   try {
-    const geo = await fetchJSON(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko`);
+    const geo = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=1&language=ko`).then(x => x.json());
     if (!geo.results || !geo.results.length) {
       document.getElementById('content').innerHTML = '<div class="error">도시를 찾을 수 없습니다</div>'; return;
     }
     const g = geo.results[0];
     await loadByCoords(g.latitude, g.longitude, g.name);
   } catch {
-    document.getElementById('content').innerHTML = '<div class="loading">날씨 서버 응답이 느려요. 다시 시도 중...</div>';
-    if (!weatherRetryTimer) {
-      weatherRetryTimer = setTimeout(() => { weatherRetryTimer = null; load(city); }, 15000);
-    }
+    document.getElementById('content').innerHTML = '<div class="error">날씨를 가져올 수 없습니다</div>';
   }
 }
 
@@ -770,8 +635,8 @@ async function loadByCoords(lat, lon, placeName) {
   document.getElementById('content').innerHTML = '<div class="loading">불러오는 중...</div>';
   try {
     const [w, aq] = await Promise.all([
-      fetchForecast(lat, lon),
-      fetchJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=pm10,pm2_5&timezone=auto`).catch(() => null)
+      fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation,is_day,uv_index&hourly=temperature_2m,weather_code,precipitation_probability&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,sunrise,sunset,uv_index_max&timezone=auto&forecast_days=10`).then(x => x.json()),
+      fetch(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${lat}&longitude=${lon}&current=pm10,pm2_5&timezone=auto`).then(x => x.json()).catch(() => null)
     ]);
 
     let name = placeName;
@@ -780,44 +645,9 @@ async function loadByCoords(lat, lon, placeName) {
     }
     currentForecast = w;
     currentPlaceName = name;
-    saveLastWeather({ lat, lon, name, w, aq, t: Date.now() });
-    if (weatherRetryTimer) { clearTimeout(weatherRetryTimer); weatherRetryTimer = null; }
     render(name, w, aq);
-    // 대체 출처(MET Norway) 사용 중이면 작게 안내 + 백그라운드로 Open-Meteo 복귀 시도
-    if (w && w._source === 'metno') {
-      const c = document.getElementById('content');
-      if (c && !c.querySelector('.stale-note')) {
-        const note = document.createElement('div');
-        note.className = 'loading stale-note';
-        note.style.cssText = 'font-size:12px;opacity:0.75;padding:6px 0';
-        note.textContent = 'ℹ 대체 기상 출처(MET Norway) 사용 중 — 강수확률은 추정값이에요';
-        c.prepend(note);
-      }
-      if (!weatherRetryTimer) {
-        weatherRetryTimer = setTimeout(() => { weatherRetryTimer = null; loadByCoords(lat, lon, placeName); }, 60000);
-      }
-    }
   } catch {
-    // API 장애 → 마지막 성공 데이터로 폴백 + 백그라운드 자동 재시도 (에러 화면 대신)
-    const cached = getLastWeather();
-    if (cached && cached.w) {
-      currentForecast = cached.w;
-      currentPlaceName = cached.name;
-      render(cached.name, cached.w, cached.aq);
-      const c = document.getElementById('content');
-      if (c && !c.querySelector('.stale-note')) {
-        const note = document.createElement('div');
-        note.className = 'loading stale-note';
-        note.style.cssText = 'font-size:12px;opacity:0.75;padding:6px 0';
-        note.textContent = '⚠ 최신 날씨를 불러오는 중이에요 (잠시 후 자동 갱신)';
-        c.prepend(note);
-      }
-    } else {
-      document.getElementById('content').innerHTML = '<div class="loading">날씨 서버 응답이 느려요. 다시 시도 중...</div>';
-    }
-    if (!weatherRetryTimer) {
-      weatherRetryTimer = setTimeout(() => { weatherRetryTimer = null; loadByCoords(lat, lon, placeName); }, 15000);
-    }
+    document.getElementById('content').innerHTML = '<div class="error">날씨를 가져올 수 없습니다</div>';
   }
 }
 
