@@ -1091,10 +1091,12 @@ function buildSummary(tempNow, rainProbNow, allEvents, extras) {
   const tempPart = (hi != null && lo != null) ? ` 오늘 최고 ${hi}°, 최저 ${lo}°예요.` : '';
   const tempSpeech = (hi != null && lo != null) ? ` 오늘 최고 기온은 ${hi}도, 최저 기온은 ${lo}도예요.` : '';
 
-  // 일정 제목에 '미팅'이 들어가면 응원 멘트
-  const hasMeeting = hasEvents && events.some(e => (e.summary || '').includes('미팅'));
-  const meetingPart = hasMeeting ? ' 오늘 미팅 화이팅이에요! 💪' : '';
-  const meetingSpeech = hasMeeting ? ' 오늘 미팅 화이팅이에요.' : '';
+  // 일정 제목에 '미팅' / '소개팅'이 들어가면 응원 멘트
+  const cheerWord = hasEvents
+    ? ['소개팅', '미팅'].find(w => events.some(e => (e.summary || '').includes(w)))
+    : null;
+  const meetingPart = cheerWord ? ` 오늘 ${cheerWord} 화이팅이에요! 💪` : '';
+  const meetingSpeech = cheerWord ? ` 오늘 ${cheerWord} 화이팅이에요.` : '';
 
   return {
     display: wPart + tempPart + ePart + advPart + meetingPart + ' ' + closing,
