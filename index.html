@@ -1655,23 +1655,33 @@ async function connectArduino() {
 }
 
 // 이전에 허가받은 포트가 있으면 페이지 로드 시 자동 연결
-async function autoConnectArduino() {
+// 앱을 닫았다 다시 열면 Windows 블루투스가 이전 세션의 COM 포트를 아직
+// 놓아주지 못해 첫 open()이 실패할 수 있다 → 연결될 때까지 여러 번 재시도.
+async function autoConnectArduino(attempt = 0) {
   if (!('serial' in navigator)) return;
+  if (arduinoConnected) return;
   try {
     const ports = await navigator.serial.getPorts();
-    if (!ports.length) return; // 권한받은 포트 없음 → 사용자가 직접 연결해야
-    // 여러 개면 첫 번째 사용 (HC-05가 보통 하나)
-    for (const port of ports) {
-      try {
-        await openArduinoPort(port);
-        console.log('[아두이노] 자동 재연결 성공');
-        return;
-      } catch (e) {
-        console.warn('[아두이노] 이 포트 열기 실패, 다음 시도:', e.message || e);
+    if (ports.length) {
+      // 여러 개면 첫 번째 사용 (HC-05가 보통 하나)
+      for (const port of ports) {
+        try {
+          await openArduinoPort(port);
+          if (arduinoConnected) {
+            console.log('[아두이노] 자동 재연결 성공');
+            return;
+          }
+        } catch (e) {
+          console.warn('[아두이노] 이 포트 열기 실패, 다음 시도:', e.message || e);
+        }
       }
     }
   } catch (e) {
     console.warn('[아두이노] 자동 연결 실패:', e);
+  }
+  // 아직 연결 안 됐으면 BT 포트가 풀릴 시간을 두고 재시도 (최대 ~30초)
+  if (!arduinoConnected && attempt < 10) {
+    setTimeout(() => autoConnectArduino(attempt + 1), 3000);
   }
 }
 
@@ -1835,6 +1845,15 @@ window.addEventListener('load', () => {
   autoLocate();
   // 위치/날씨 잡힌 다음 잠깐 뒤에 시도 (RAIN 보낼 데이터 준비된 후)
   setTimeout(autoConnectArduino, 2000);
+});
+
+// 앱을 닫거나 나갈 때 시리얼 포트를 깨끗이 정리 → 다음 진입 때 재연결이 막히지 않게.
+// (정리 안 하면 BT COM 포트가 잡힌 채로 남아 다음 open()이 실패함)
+window.addEventListener('pagehide', () => {
+  if (arduinoSendTimer) { clearInterval(arduinoSendTimer); arduinoSendTimer = null; }
+  try { if (arduinoReader) arduinoReader.cancel(); } catch (e) {}
+  try { if (arduinoWriter) arduinoWriter.releaseLock(); } catch (e) {}
+  try { if (arduinoPort) arduinoPort.close(); } catch (e) {}
 });
 </script>
 </body>
