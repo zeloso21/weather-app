@@ -1575,6 +1575,7 @@ let arduinoConnected = false;
 let arduinoSendTimer = null;
 let arduinoOpening = false; // open() 중복 호출(경합) 방지
 let arduinoUserDisconnected = false; // 사용자가 '연결 해제'를 직접 누른 경우 자동 재연결 막기
+let arduinoWriteFails = 0; // 연속 전송 실패 횟수 (일시적 끊김으로 연결을 바로 끊지 않기 위함)
 
 function updateArduinoUI() {
   const stateEl = document.getElementById('arduino-state');
@@ -1760,12 +1761,20 @@ async function sendRainStateToArduino(forceShow) {
   const line = `RAIN:${rainy ? 1 : 0}\n`;
   try {
     await arduinoWriter.write(new TextEncoder().encode(line));
+    arduinoWriteFails = 0;
     console.log('[전송→아두이노]', line.trim());
     if (forceShow) updateArduinoUI();
   } catch (e) {
-    console.error('전송 실패:', e);
-    arduinoConnected = false;
-    updateArduinoUI();
+    // 일시적 전송 오류로 연결을 끊지 않는다 (앱 켜둔 동안 끊김 방지).
+    // 진짜 끊김은 읽기 루프와 OS 분리 이벤트가 감지해 watchdog이 재연결한다.
+    arduinoWriteFails++;
+    console.warn(`전송 일시 실패 ${arduinoWriteFails}회 — 연결 유지:`, e);
+    // 그래도 연속 여러 번 실패면 정말 죽은 것 → 그때만 재연결로 넘긴다.
+    if (arduinoWriteFails >= 5) {
+      arduinoWriteFails = 0;
+      arduinoConnected = false;
+      updateArduinoUI();
+    }
   }
 }
 
@@ -1860,14 +1869,10 @@ setInterval(() => {
   }
 }, 4000);
 
-// 앱을 닫거나 나갈 때 시리얼 포트를 깨끗이 정리 → 다음 진입 때 재연결이 막히지 않게.
-// (정리 안 하면 BT COM 포트가 잡힌 채로 남아 다음 open()이 실패함)
-window.addEventListener('pagehide', () => {
-  if (arduinoSendTimer) { clearInterval(arduinoSendTimer); arduinoSendTimer = null; }
-  try { if (arduinoReader) arduinoReader.cancel(); } catch (e) {}
-  try { if (arduinoWriter) arduinoWriter.releaseLock(); } catch (e) {}
-  try { if (arduinoPort) arduinoPort.close(); } catch (e) {}
-});
+// 주의: 예전엔 pagehide에서 포트를 닫았는데, 이 이벤트가 화면 꺼짐·백그라운드
+// 전환·freeze 때도 발동해 "앱 켜둔 채로 연결이 끊기는" 주범이었다. 그래서 제거.
+// 페이지를 진짜로 닫으면 브라우저가 알아서 포트를 풀어주고, 다음 진입 땐
+// watchdog(4초 간격)이 다시 붙으므로 별도 정리가 필요 없다.
 </script>
 </body>
 </html>
