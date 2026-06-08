@@ -753,8 +753,8 @@ function render(place, w, aq) {
   const pm25 = (aq && aq.current && aq.current.pm2_5 != null) ? Math.round(aq.current.pm2_5) : null;
   currentUV = uv; currentPM10 = pm10; currentPM25 = pm25;
 
-  summaryContext = { tempNow, rainProbNow: probNow, uv, pm10, pm25, diurnal };
-  const { display: summary, speech: summarySpeech } = buildSummary(tempNow, probNow, todayEventsCache, { uv, pm10, pm25, diurnal });
+  summaryContext = { tempNow, rainProbNow: probNow, uv, pm10, pm25, diurnal, hi: todayHi, lo: todayLo };
+  const { display: summary, speech: summarySpeech } = buildSummary(tempNow, probNow, todayEventsCache, { uv, pm10, pm25, diurnal, hi: todayHi, lo: todayLo });
   currentSummary = summarySpeech;
 
   // 시간별 예보 (현재부터 24시간)
@@ -934,7 +934,7 @@ function buildSummary(tempNow, rainProbNow, allEvents, extras) {
   const events = filterEventsToShow(allEvents);
   const hasEvents = events && events.length;
   let wPart = '', wSpeech = '', closing, closingSpeech;
-  const { uv = null, pm10 = null, pm25 = null, diurnal = 0 } = (extras || {});
+  const { uv = null, pm10 = null, pm25 = null, diurnal = 0, hi = null, lo = null } = (extras || {});
 
   if (rainProbNow < 40) {
     if (!hasEvents) {
@@ -1080,16 +1080,20 @@ function buildSummary(tempNow, rainProbNow, allEvents, extras) {
     advisories.push('자외선이 강하니까 선크림 잘 바르세요 🧴');
     advisoriesSpeech.push('자외선이 강하니까 선크림 잘 바르세요.');
   }
-  if (diurnal >= 10) {
+  if (diurnal >= 5) {
     advisories.push(`일교차가 ${diurnal}도로 크니까 겉옷 챙기세요 🧥`);
     advisoriesSpeech.push(`일교차가 크니까 겉옷 챙기세요.`);
   }
   const advPart = advisories.length ? ' ' + advisories.join(' ') : '';
   const advSpeech = advisoriesSpeech.length ? ' ' + advisoriesSpeech.join(' ') : '';
 
+  // 오늘 최고/최저 기온 안내
+  const tempPart = (hi != null && lo != null) ? ` 오늘 최고 ${hi}°, 최저 ${lo}°예요.` : '';
+  const tempSpeech = (hi != null && lo != null) ? ` 오늘 최고 기온은 ${hi}도, 최저 기온은 ${lo}도예요.` : '';
+
   return {
-    display: wPart + ePart + advPart + ' ' + closing,
-    speech:  wSpeech + eSpeech + advSpeech + ' ' + closingSpeech
+    display: wPart + tempPart + ePart + advPart + ' ' + closing,
+    speech:  wSpeech + tempSpeech + eSpeech + advSpeech + ' ' + closingSpeech
   };
 }
 
@@ -1097,8 +1101,8 @@ function rebuildSummary() {
   updateTheme();
   updateHero();
   if (!summaryContext) return;
-  const { tempNow, rainProbNow, uv, pm10, pm25, diurnal } = summaryContext;
-  const { display, speech } = buildSummary(tempNow, rainProbNow, todayEventsCache, { uv, pm10, pm25, diurnal });
+  const { tempNow, rainProbNow, uv, pm10, pm25, diurnal, hi, lo } = summaryContext;
+  const { display, speech } = buildSummary(tempNow, rainProbNow, todayEventsCache, { uv, pm10, pm25, diurnal, hi, lo });
   currentSummary = speech;
   const el = document.getElementById('summary-text');
   if (el) el.textContent = display;
